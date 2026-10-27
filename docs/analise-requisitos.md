@@ -62,16 +62,60 @@ O PDF é um modelo genérico, com sugestões de implementação em planilha, e n
 - **Configurações por tenant:** logo e cabeçalho dos termos, subdomínio, quantidade de autorizadores, numeração de pedidos e termos.
 - **Usuários:** pertencem a um tenant.
 
-## 6. Decisões em aberto
+## 6. Arquitetura modular
 
-1. **Duas autorizações:** em sequência (A e depois B) ou qualquer uma basta? Cada setor autoriza o pedido inteiro ou parte dele (por exemplo, consumo para um e permanente para o outro)?
+### Decisões tomadas
+
+- **Objetivo da modularidade:** para a SEMTRAS, organização, entendimento e arquitetura do projeto. No futuro, venda por módulo. Por isso o código nasce modular e o cadastro de módulos ativos por tenant deixa espaço para licenciamento (ex.: vigência e plano), sem implementar cobrança agora.
+- **Divisão em módulos:** aprovada (tabela abaixo).
+- **Fluxo de autorização:** configurável por tenant.
+- **Auditoria:** sempre ativa, não configurável, parte do núcleo.
+
+### Núcleo (sempre ativo, não é módulo)
+
+- Tenants, usuários, perfis e permissões.
+- Estrutura organizacional (secretaria e setores).
+- Auditoria.
+- Catálogo de itens (tipo consumo ou permanente, unidade, categoria).
+- Cadastro de módulos ativos e configurações do tenant.
+
+### Módulos opcionais
+
+| Módulo | O que faz | Depende de |
+|---|---|---|
+| Estoque | Saldo, movimentações, estoque mínimo e alertas dos itens de consumo | Núcleo |
+| Patrimônio | Unidades tombadas, localização e responsável atuais, histórico, transferência, baixa e etiqueta/QR | Núcleo |
+| Contratos e Recebimento | Fornecedor, processo/contrato/ata, saldo contratado e conferência de recebimento com nota fiscal; alimenta Estoque e Patrimônio | Estoque e/ou Patrimônio |
+| Pedidos e Autorização | Pedido do setor e fluxo de aprovação com N etapas configuráveis | Estoque e/ou Patrimônio |
+| Distribuição e Termos | Separação, termo de recebimento, termo de responsabilidade e assinatura | Pedidos |
+| Relatórios | Consumo por setor, itens sem saldo, aprovações por gestor etc.; mostra os dos módulos ativos | Módulos ativos |
+
+### Princípios de implementação
+
+- **Monólito modular:** um único deploy, um módulo por pasta e tabelas próprias. Os módulos conversam por interfaces e eventos de domínio (ex.: "item recebido" publicado pelo recebimento, consumido por Estoque ou Patrimônio). Nenhum módulo lê tabelas de outro diretamente.
+- **Esquema do banco único para todos os tenants:** ativar ou desativar um módulo só muda o acesso (menu, rotas e API), não cria nem remove tabelas.
+- **Desativar esconde, não apaga:** os dados são preservados e a auditoria continua valendo.
+- **Dependências declaradas no código:** o sistema impede ativar um módulo sem os que ele exige (ex.: Distribuição sem Pedidos).
+- **Regras de negócio como configuração, não como módulo:** ex.: "entrada de estoque exige contrato" (SEMTRAS liga; outro município pode permitir entrada manual com justificativa).
+- **Fluxo de autorização configurável por tenant:** etapas em ordem, com quem aprova cada uma (perfil ou setor), regra da etapa (qualquer um ou todos) e, se necessário, escopo por tipo de item (consumo ou permanente). A SEMTRAS configura duas etapas.
+
+### Riscos
+
+1. **Granularidade:** módulos demais multiplicam as combinações de teste. Manter os seis acima no início.
+2. **Acoplamento escondido:** se um módulo ler dados de outro diretamente, a independência se perde.
+3. **Telas e relatórios que cruzam módulos:** precisam degradar bem (ex.: o pedido mostra o saldo só se Estoque estiver ativo).
+4. **Itens de consumo e permanentes no mesmo pedido:** se o tenant tiver só um dos módulos, catálogo e pedido filtram o tipo correspondente.
+
+## 7. Decisões em aberto
+
+1. **Autorizações da SEMTRAS:** em sequência (A e depois B) ou qualquer uma basta? Cada setor autoriza o pedido inteiro ou parte dele (ex.: consumo para um e permanente para o outro)? Quais são os dois setores?
 2. **Patrimônio:** existe inventário atual para importar? Haverá etiqueta com QR code ou código de barras? Precisa de transferência entre setores, devolução e baixa (desfazimento)?
 3. **Termo de recebimento:** impresso e assinado à mão, com upload do escaneado, ou assinatura eletrônica? Quem recebe é sempre um servidor com login?
 4. **Entradas:** o controle é só do contrato (saldo por item) ou também de empenho e nota? Doações e ajustes de inventário ficam fora ou entram como exceção com justificativa?
 5. **Stack e hospedagem:** linguagem, framework e onde vai rodar (servidor da prefeitura, nuvem).
-6. **Escopo do MVP:** qual é o mínimo para a SEMTRAS começar a usar?
+6. **Escopo do MVP:** qual é o mínimo para a SEMTRAS começar a usar? (Proposta: todos os módulos ativos, exceto Relatórios avançados.)
 
-## 7. Próximos passos
+## 8. Próximos passos
 
 - Responder as decisões em aberto.
 - Consolidar requisitos funcionais e modelo de dados (tenants, usuários e perfis, setores, itens, contratos, recebimentos, unidades patrimoniais, pedidos, autorizações, termos, auditoria).
