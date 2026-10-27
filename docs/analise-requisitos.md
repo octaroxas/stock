@@ -106,17 +106,48 @@ O PDF é um modelo genérico, com sugestões de implementação em planilha, e n
 3. **Telas e relatórios que cruzam módulos:** precisam degradar bem (ex.: o pedido mostra o saldo só se Estoque estiver ativo).
 4. **Itens de consumo e permanentes no mesmo pedido:** se o tenant tiver só um dos módulos, catálogo e pedido filtram o tipo correspondente.
 
-## 7. Decisões em aberto
+## 7. Stack e convenções de desenvolvimento
 
-1. **Autorizações da SEMTRAS:** em sequência (A e depois B) ou qualquer uma basta? Cada setor autoriza o pedido inteiro ou parte dele (ex.: consumo para um e permanente para o outro)? Quais são os dois setores?
-2. **Patrimônio:** existe inventário atual para importar? Haverá etiqueta com QR code ou código de barras? Precisa de transferência entre setores, devolução e baixa (desfazimento)?
-3. **Termo de recebimento:** impresso e assinado à mão, com upload do escaneado, ou assinatura eletrônica? Quem recebe é sempre um servidor com login?
-4. **Entradas:** o controle é só do contrato (saldo por item) ou também de empenho e nota? Doações e ajustes de inventário ficam fora ou entram como exceção com justificativa?
-5. **Stack e hospedagem:** linguagem, framework e onde vai rodar (servidor da prefeitura, nuvem).
-6. **Escopo do MVP:** qual é o mínimo para a SEMTRAS começar a usar? (Proposta: todos os módulos ativos, exceto Relatórios avançados.)
+### Decisões tomadas
 
-## 8. Próximos passos
+- **Backend:** Laravel 13.
+- **Front-end:** Livewire v4, Alpine.js para interações em JavaScript e Tailwind CSS para estilização.
+- **Autorização:** Laravel Permission (pacote `spatie/laravel-permission`, a confirmar) e Policies.
+- **Rotas:** apontam para componentes de página Livewire, que renderizam views Blade.
+- **Formulários:** a lógica de negócio dos cadastros fica nos formulários Livewire (Form objects). Cada form tem um método que retorna o array de regras de validação e outro com as mensagens em português do Brasil.
+- **PDF:** exportação com DomPDF (termos de recebimento e de responsabilidade, relatórios).
+- **Banco e infraestrutura:** PostgreSQL como serviço `db` no `docker-compose.yml` do projeto (ainda não existe). PostgreSQL é necessário para a Row-Level Security.
+- **Multi-tenancy e módulos:** estrutura própria, sem pacotes de multi-tenancy ou de módulos.
+- **Operações com estado:** classes de ação do módulo (ver ponto 4 abaixo); os Form objects ficam só com os cadastros.
+- **Auditoria:** `owen-it/laravel-auditing`.
 
-- Responder as decisões em aberto.
+### Detalhamento
+
+1. **Spatie Permission e multi-tenant:** usar o recurso de *teams* do pacote com `team_id` = `tenant_id`, para que perfis e permissões sejam por município. Os perfis do PDF (Estoque, Solicitante, Gestor_autorizador, Distribuição) viram papéis por tenant, e os papéis são semeados na criação do tenant.
+2. **Isolamento de tenant:** trait `BelongsToTenant` com global scope, tenant resolvido por subdomínio em middleware, e Row-Level Security no PostgreSQL como segunda barreira. Implementação própria (decidido).
+3. **Módulos:** um módulo por pasta (ex.: `app/Modules/Estoque`), com service provider próprio, rotas, componentes Livewire, models, policies e migrations. Um middleware `modulo:<nome>` bloqueia rotas de módulos inativos no tenant, e o menu só lista os ativos. Estrutura própria (decidido).
+4. **Forms e operações com estado:** os Form objects cuidam dos cadastros (validação, `rules()`, `messages()` e persistência). Operações que movem estado entre módulos (receber contrato, aprovar etapa, separar, entregar, transferir bem) ficam em classes de ação do módulo, chamadas pelo componente, dentro de transação e emitindo evento. Assim a regra não fica presa à tela e a comunicação entre módulos segue por eventos.
+5. **Nomes de campo nas mensagens:** além de `rules()` e `messages()`, cada form pode ter `validationAttributes()` para exibir os nomes dos campos em português.
+6. **PDF com DomPDF:** o suporte a CSS é limitado (sem flex nem grid, e o Tailwind não se aplica bem). As views de PDF devem ser Blade próprias, com CSS simples e tabelas, separadas das views das telas. Pacote: `barryvdh/laravel-dompdf`.
+7. **Auditoria:** `owen-it/laravel-auditing` (decidido), registrando autor, data, hora, IP e valores antes e depois. O registro deve ser somente de inclusão, com o usuário do banco da aplicação sem permissão de UPDATE ou DELETE na tabela.
+
+## 8. Decisões de requisitos
+
+### Decididas
+
+- **Entradas fora de contrato** (doação, ajuste de inventário, saldo inicial): permitidas como exceção, com justificativa obrigatória e permissão específica, tudo auditado. A regra "entrada exige contrato" é configurável por tenant.
+- **Nível de controle de contratos:** contrato com saldo por item (fornecedor, processo/contrato/ata, itens contratados com quantidade e saldo a receber, recebimento com nota fiscal). Empenho fica fora.
+- **Patrimônio:** além da localização atual, o módulo faz importação do inventário existente, transferência entre setores, e devolução e baixa. Etiqueta com QR code não entra no MVP.
+- **Banco e infraestrutura:** PostgreSQL como serviço `db` no `docker-compose.yml`.
+- **Escopo do MVP:** núcleo e todos os módulos, exceto Relatórios avançados (só os relatórios básicos).
+
+### Em aberto
+
+1. **Autorizações da SEMTRAS:** a regra (em sequência, qualquer uma basta ou por tipo de item) e quais são os dois setores ainda não estão definidas. Como o fluxo é configurável por tenant, o desenvolvimento segue e a regra da SEMTRAS é configurada depois de conversar com eles.
+2. **Termo de recebimento:** impresso com upload do escaneado, assinatura eletrônica ou ambos. Sem definição, o MVP começa com o PDF impresso. Falta também confirmar se quem recebe é sempre um servidor com login.
+
+## 9. Próximos passos
+
+- Conversar com a SEMTRAS sobre as duas pendências acima.
 - Consolidar requisitos funcionais e modelo de dados (tenants, usuários e perfis, setores, itens, contratos, recebimentos, unidades patrimoniais, pedidos, autorizações, termos, auditoria).
-- Definir a stack e o escopo do MVP.
+- Montar a base do projeto: Laravel 13, `docker-compose.yml` com `db` PostgreSQL, Livewire v4, Tailwind, Alpine, Spatie Permission, owen-it/laravel-auditing e DomPDF.
