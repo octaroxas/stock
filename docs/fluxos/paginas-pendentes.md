@@ -6,10 +6,10 @@ Lista de trabalho das páginas de apresentação do projeto. Todas usam a mesma 
 
 | Arquivo | O que mostra |
 |---|---|
-| `fluxo-do-sistema.html` | Fluxo completo, rolando a página: entrada, pedido, autorização, separação, entrega e auditoria |
-| `fluxo-estocagem.html` | Só o ciclo do estoque: contrato, recebimento, saldo, patrimônio, alertas e exceções |
-| `configurador-autorizacao.html` | Montagem do fluxo de autorização por município, com simulação de um pedido |
-| `termos.html` | Termo de recebimento e termo de responsabilidade em A4, com as três formas de assinatura |
+| `fluxos/01-fluxo-do-sistema.html` | Fluxo completo, rolando a página: entrada, pedido, autorização, separação, entrega e auditoria |
+| `fluxos/02-fluxo-estocagem.html` | Só o ciclo do estoque: contrato, recebimento, saldo, patrimônio, alertas e exceções |
+| `fluxos/00-configurador-autorizacao.html` | Montagem do fluxo de autorização por município, com simulação de um pedido |
+| `fluxos/03-termos.html` | Termo de recebimento e termo de responsabilidade em A4, com as três formas de assinatura |
 
 ## Pendentes
 
