@@ -10,14 +10,14 @@ Lista de trabalho das páginas de apresentação do projeto. Todas usam a mesma 
 | `fluxos/02-fluxo-estocagem.html` | Só o ciclo do estoque: contrato, recebimento, saldo, patrimônio, alertas e exceções |
 | `fluxos/00-configurador-autorizacao.html` | Montagem do fluxo de autorização por município, com simulação de um pedido |
 | `fluxos/03-termos.html` | Termo de recebimento e termo de responsabilidade em A4, com as três formas de assinatura |
+| `fluxos/04-modelo-de-dados.html` | Diagrama navegável das 26 tabelas por módulo, com `tenant_id`, Row-Level Security, restrições e a conferência de que os módulos só se ligam ao núcleo |
 
 ## Pendentes
 
-Ordem sugerida: 6, 5, 4, 8, 7, 3, 9, 10. As duas primeiras destravam a modelagem de dados e as policies; a 9 é a maior e fica por último.
+Ordem sugerida: 5, 4, 8, 7, 3, 9, 10. A 5 destrava as policies; a 9 é a maior e fica por último.
 
 | # | Página | Para quê | Base nos documentos |
 |---|---|---|---|
-| 6 | **Modelo de dados** | Diagrama das tabelas (tenants, usuários, setores, itens, contratos, recebimentos, bens, pedidos, autorizações, termos, auditoria), com `tenant_id` e Row-Level Security | `analise-requisitos.md`, seções 5, 7 e 9 |
 | 5 | **Perfis e permissões** | Matriz de quem pode o quê, com troca de perfil para ver as telas mudarem. Inclui a segregação de funções e a permissão específica de entrada fora de contrato | Seção 2 e seção 7, item 1 (Spatie Permission com *teams*) |
 | 4 | **Mapa de módulos e dependências** | Ligar e desligar módulos, com o sistema bloqueando combinações inválidas (ex.: Distribuição sem Pedidos) e mostrando o que some do menu e das telas | Seção 6, incluindo os riscos de telas que cruzam módulos |
 | 8 | **Máquina de estados do pedido** | Todos os status e as transições permitidas, com quem pode disparar cada uma | PDF (status do pedido) e seção 4 |

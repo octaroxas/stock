@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modelo de dados — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <script>
+    function modelo() {
+      // Classes completas (e não montadas por interpolação) para o Tailwind enxergar cada uma.
+      const COR = {
+        slate:  { dot: 'bg-slate-500',  chip: 'bg-slate-100 text-slate-700',   bar: 'border-l-slate-400' },
+        sky:    { dot: 'bg-sky-500',    chip: 'bg-sky-100 text-sky-800',       bar: 'border-l-sky-400' },
+        violet: { dot: 'bg-violet-500', chip: 'bg-violet-100 text-violet-800', bar: 'border-l-violet-400' },
+        teal:   { dot: 'bg-teal-500',   chip: 'bg-teal-100 text-teal-800',     bar: 'border-l-teal-400' },
+        indigo: { dot: 'bg-indigo-500', chip: 'bg-indigo-100 text-indigo-800', bar: 'border-l-indigo-400' },
+        pink:   { dot: 'bg-pink-500',   chip: 'bg-pink-100 text-pink-800',     bar: 'border-l-pink-400' },
+      };
+      const MOD = {
+        nucleo:       { nome: 'Núcleo',                  cor: 'slate',  dep: [] },
+        estoque:      { nome: 'Estoque',                 cor: 'sky',    dep: ['nucleo'] },
+        patrimonio:   { nome: 'Patrimônio',              cor: 'violet', dep: ['nucleo'] },
+        contratos:    { nome: 'Contratos e Recebimento', cor: 'teal',   dep: ['nucleo'] },
+        pedidos:      { nome: 'Pedidos e Autorização',   cor: 'indigo', dep: ['nucleo'] },
+        distribuicao: { nome: 'Distribuição e Termos',   cor: 'pink',   dep: ['nucleo', 'pedidos'] },
+      };
+
+      // Cada coluna: [nome, tipo, marcadores, observação].
+      // Marcadores: pk · fk:tabela · ref:tabela (referência sem FK) · uk · null.
+      const tbl = (id, modulo, desc, cols, opts = {}) => {
+        const lista = cols.map(([nome, tipo, fl = '', nota = '']) => {
+          const t = fl.split(' ').filter(Boolean);
+          const pick = p => (t.find(x => x.startsWith(p + ':')) || '').slice(p.length + 1);
+          return { nome, tipo, nota, pk: t.includes('pk'), uk: t.includes('uk'), nulo: t.includes('null'), fk: pick('fk'), ref: pick('ref') };
+        });
+        if (opts.tenant !== false && !lista.some(c => c.nome === 'tenant_id')) {
+          lista.splice(1, 0, { nome: 'tenant_id', tipo: 'bigint', nota: 'isola os dados do município', pk: false, uk: false, nulo: false, fk: 'tenants', ref: '' });
+        }
+        return { id, modulo, desc, cols: lista, unicos: opts.unicos || [], checks: opts.checks || [], pacote: opts.pacote || '' };
+      };
+
+      const TABELAS = [
+        // ---------- Núcleo ----------
+        tbl('tenants', 'nucleo', 'O município. Dentro dele ficam a secretaria e os setores.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['subdominio', 'varchar', 'uk', 'resolve o tenant na requisição'],
+          ['logo_path', 'varchar', 'null', 'logo dos termos'],
+          ['cabecalho_termos', 'text', 'null'],
+          ['configuracoes', 'jsonb', '', 'nº de autorizadores, numeração de pedidos e termos, exige_contrato'],
+          ['created_at', 'timestamptz'],
+        ], { tenant: false }),
+        tbl('tenant_modulos', 'nucleo', 'Quais módulos cada município tem ativos. Espaço reservado para licenciamento futuro.', [
+          ['id', 'bigint', 'pk'],
+          ['modulo', 'varchar', '', 'estoque · patrimonio · contratos · pedidos · distribuicao · relatorios'],
+          ['ativo', 'boolean', '', 'desativar esconde, não apaga'],
+          ['vigencia_ate', 'date', 'null', 'licenciamento futuro, sem cobrança no MVP'],
+          ['plano', 'varchar', 'null'],
+        ], { unicos: ['(tenant_id, modulo)'] }),
+        tbl('setores', 'nucleo', 'Estrutura organizacional: a secretaria na raiz e os setores abaixo dela.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['setor_pai_id', 'bigint', 'fk:setores null', 'vazio na secretaria'],
+          ['ativo', 'boolean'],
+        ]),
+        tbl('users', 'nucleo', 'Usuários. Cada um pertence a um tenant.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['email', 'varchar'],
+          ['password', 'varchar'],
+          ['setor_id', 'bigint', 'fk:setores null'],
+          ['ativo', 'boolean'],
+          ['created_at', 'timestamptz'],
+        ], { unicos: ['(tenant_id, email)'] }),
+        tbl('roles', 'nucleo', 'Perfis (Estoque, Solicitante, Gestor_autorizador, Distribuição), por município.', [
+          ['id', 'bigint', 'pk'],
+          ['tenant_id', 'bigint', 'fk:tenants', 'team_id do Spatie Permission'],
+          ['name', 'varchar'],
+          ['guard_name', 'varchar'],
+        ], { pacote: 'spatie/laravel-permission, com teams ligado. As tabelas permissions e role_has_permissions seguem o pacote e também levam tenant_id.', unicos: ['(tenant_id, name, guard_name)'] }),
+        tbl('model_has_roles', 'nucleo', 'Quais perfis cada usuário tem. Um usuário pode acumular perfis.', [
+          ['role_id', 'bigint', 'pk fk:roles'],
+          ['tenant_id', 'bigint', 'pk fk:tenants', 'team_id do Spatie Permission'],
+          ['model_type', 'varchar', 'pk'],
+          ['model_id', 'bigint', 'pk', 'id do usuário'],
+        ], { pacote: 'spatie/laravel-permission, com teams ligado.' }),
+        tbl('categorias', 'nucleo', 'Agrupamento do catálogo.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+        ]),
+        tbl('itens', 'nucleo', 'Catálogo de itens, de consumo ou permanentes. É compartilhado por todos os módulos.', [
+          ['id', 'bigint', 'pk'],
+          ['categoria_id', 'bigint', 'fk:categorias null'],
+          ['codigo', 'varchar'],
+          ['nome', 'varchar'],
+          ['tipo', 'varchar', '', 'consumo · permanente'],
+          ['unidade', 'varchar', '', 'un, resma, caixa…'],
+          ['unidades_por_caixa', 'integer', '', 'caixa entra convertida: 1 caixa = 12 un, registra 12'],
+          ['estoque_minimo', 'integer', '', 'só consumo; alerta quando saldo ≤ mínimo'],
+          ['ativo', 'boolean'],
+        ], { unicos: ['(tenant_id, codigo)'], checks: ['tipo IN (\'consumo\', \'permanente\')'] }),
+        tbl('audits', 'nucleo', 'Registro de quem fez o quê, quando e com quais valores antes e depois. Sempre ativo.', [
+          ['id', 'bigint', 'pk'],
+          ['user_id', 'bigint', 'fk:users null', 'vazio para ações do sistema'],
+          ['event', 'varchar', '', 'created · updated · deleted · …'],
+          ['auditable_type', 'varchar'],
+          ['auditable_id', 'bigint'],
+          ['old_values', 'jsonb', 'null'],
+          ['new_values', 'jsonb', 'null'],
+          ['ip_address', 'inet', 'null'],
+          ['url', 'text', 'null'],
+          ['created_at', 'timestamptz', '', 'data e hora da ação'],
+        ], { pacote: 'owen-it/laravel-auditing. O pacote não traz tenant_id; a migration publicada ganha a coluna, preenchida pelo trait.' }),
+
+        // ---------- Estoque ----------
+        tbl('estoque_saldos', 'estoque', 'Saldo atual de cada item de consumo.', [
+          ['id', 'bigint', 'pk'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['quantidade', 'integer', '', 'nunca negativa'],
+          ['updated_at', 'timestamptz'],
+        ], { unicos: ['(tenant_id, item_id)'], checks: ['quantidade >= 0'] }),
+        tbl('movimentacoes', 'estoque', 'Livro de entradas e saídas. O saldo é consequência dele.', [
+          ['id', 'bigint', 'pk'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['tipo', 'varchar', '', 'entrada · saida'],
+          ['origem', 'varchar', '', 'contrato · doacao · ajuste · saldo_inicial · pedido'],
+          ['quantidade', 'integer', '', 'em unidade padrão'],
+          ['saldo_apos', 'integer'],
+          ['referencia_tipo', 'varchar', 'null', 'recebimento_item ou entrega_item'],
+          ['referencia_id', 'bigint', 'ref:recebimento_itens|entrega_itens null', 'sem FK: o vínculo vem pelo evento'],
+          ['justificativa', 'text', 'null', 'obrigatória fora de contrato'],
+          ['user_id', 'bigint', 'fk:users'],
+          ['created_at', 'timestamptz'],
+        ], { checks: ['quantidade > 0', 'saldo_apos >= 0', 'origem <> \'contrato\' OR referencia_id IS NOT NULL', 'origem IN (\'contrato\', \'pedido\') OR justificativa IS NOT NULL'] }),
+
+        // ---------- Patrimônio ----------
+        tbl('bens', 'patrimonio', 'Cada bem permanente como unidade individual, com localização e responsável atuais.', [
+          ['id', 'bigint', 'pk'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['tombamento', 'varchar', '', 'nº de tombamento'],
+          ['descricao', 'varchar'],
+          ['situacao', 'varchar', '', 'ativo · baixado'],
+          ['setor_id', 'bigint', 'fk:setores', 'localização atual'],
+          ['responsavel_id', 'bigint', 'fk:users null', 'responsável atual'],
+          ['created_at', 'timestamptz'],
+        ], { unicos: ['(tenant_id, tombamento)'] }),
+        tbl('bem_historico', 'patrimonio', 'Todo o caminho do bem: de onde saiu, para onde foi e quem respondeu por ele.', [
+          ['id', 'bigint', 'pk'],
+          ['bem_id', 'bigint', 'fk:bens'],
+          ['tipo', 'varchar', '', 'tombamento · importacao · transferencia · devolucao · baixa'],
+          ['setor_origem_id', 'bigint', 'fk:setores null'],
+          ['setor_destino_id', 'bigint', 'fk:setores null'],
+          ['responsavel_id', 'bigint', 'fk:users null'],
+          ['referencia_tipo', 'varchar', 'null', 'ex.: termo de responsabilidade'],
+          ['referencia_id', 'bigint', 'ref:termos null', 'sem FK: o vínculo vem pelo evento'],
+          ['motivo', 'text', 'null', 'obrigatório na baixa'],
+          ['user_id', 'bigint', 'fk:users'],
+          ['created_at', 'timestamptz'],
+        ]),
+
+        // ---------- Contratos e Recebimento ----------
+        tbl('fornecedores', 'contratos', 'Quem fornece nos contratos de licitação.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['cnpj', 'varchar'],
+        ], { unicos: ['(tenant_id, cnpj)'] }),
+        tbl('contratos', 'contratos', 'Processo, contrato ou ata de registro de preços.', [
+          ['id', 'bigint', 'pk'],
+          ['fornecedor_id', 'bigint', 'fk:fornecedores'],
+          ['tipo', 'varchar', '', 'contrato · ata'],
+          ['processo', 'varchar'],
+          ['numero', 'varchar'],
+          ['vigencia_inicio', 'date'],
+          ['vigencia_fim', 'date'],
+          ['status', 'varchar', '', 'vigente · encerrado'],
+        ], { checks: ['vigencia_fim >= vigencia_inicio'] }),
+        tbl('contrato_itens', 'contratos', 'Itens contratados, com a quantidade e o saldo a receber.', [
+          ['id', 'bigint', 'pk'],
+          ['contrato_id', 'bigint', 'fk:contratos'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['qtd_contratada', 'integer'],
+          ['qtd_recebida', 'integer', '', 'saldo a receber = contratada − recebida'],
+        ], { unicos: ['(contrato_id, item_id)'], checks: ['qtd_recebida >= 0', 'qtd_recebida <= qtd_contratada'] }),
+        tbl('recebimentos', 'contratos', 'Conferência de uma entrega do fornecedor, com a nota fiscal.', [
+          ['id', 'bigint', 'pk'],
+          ['contrato_id', 'bigint', 'fk:contratos'],
+          ['nota_fiscal', 'varchar'],
+          ['data_nota', 'date'],
+          ['conferido_por', 'bigint', 'fk:users'],
+          ['conferido_em', 'timestamptz'],
+        ]),
+        tbl('recebimento_itens', 'contratos', 'O que foi conferido em cada recebimento. Cada linha publica o evento “item recebido”.', [
+          ['id', 'bigint', 'pk'],
+          ['recebimento_id', 'bigint', 'fk:recebimentos'],
+          ['contrato_item_id', 'bigint', 'fk:contrato_itens'],
+          ['quantidade', 'integer', '', 'em unidade padrão'],
+        ], { checks: ['quantidade > 0'] }),
+
+        // ---------- Pedidos e Autorização ----------
+        tbl('pedidos', 'pedidos', 'Cabeçalho do pedido de um setor.', [
+          ['id', 'bigint', 'pk'],
+          ['numero', 'varchar', '', 'ex.: 2026/000087'],
+          ['setor_id', 'bigint', 'fk:setores'],
+          ['solicitante_id', 'bigint', 'fk:users'],
+          ['status', 'varchar', '', 'rascunho · enviado_para_aprovacao · aprovado · reprovado · parcialmente_atendido · atendido · cancelado'],
+          ['enviado_em', 'timestamptz', 'null'],
+          ['created_at', 'timestamptz'],
+        ], { unicos: ['(tenant_id, numero)'] }),
+        tbl('pedido_itens', 'pedidos', 'Itens do pedido, com as três quantidades: solicitada, aprovada e distribuída.', [
+          ['id', 'bigint', 'pk'],
+          ['pedido_id', 'bigint', 'fk:pedidos'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['qtd_solicitada', 'integer'],
+          ['qtd_aprovada', 'integer', 'null', 'vazia até a autorização'],
+          ['qtd_distribuida', 'integer', '', 'começa em 0'],
+        ], { unicos: ['(pedido_id, item_id)'], checks: ['qtd_solicitada > 0', 'qtd_aprovada <= qtd_solicitada', 'qtd_distribuida <= qtd_aprovada'] }),
+        tbl('fluxo_etapas', 'pedidos', 'Etapas de autorização configuradas pelo município, em ordem.', [
+          ['id', 'bigint', 'pk'],
+          ['ordem', 'integer'],
+          ['titulo', 'varchar'],
+          ['escopo', 'varchar', '', 'todos · consumo · permanente'],
+          ['regra', 'varchar', '', 'qualquer · todos'],
+        ], { unicos: ['(tenant_id, ordem)'] }),
+        tbl('fluxo_etapa_aprovadores', 'pedidos', 'Quem aprova cada etapa: um setor ou um perfil.', [
+          ['id', 'bigint', 'pk'],
+          ['etapa_id', 'bigint', 'fk:fluxo_etapas'],
+          ['setor_id', 'bigint', 'fk:setores null'],
+          ['role_id', 'bigint', 'fk:roles null'],
+        ], { checks: ['(setor_id IS NULL) <> (role_id IS NULL)'] }),
+        tbl('autorizacoes', 'pedidos', 'Cada decisão de um aprovador em uma etapa de um pedido.', [
+          ['id', 'bigint', 'pk'],
+          ['pedido_id', 'bigint', 'fk:pedidos'],
+          ['etapa_id', 'bigint', 'fk:fluxo_etapas'],
+          ['aprovador_id', 'bigint', 'fk:users', 'a action recusa se for o solicitante'],
+          ['decisao', 'varchar', '', 'aprovado · reprovado'],
+          ['motivo', 'text', 'null'],
+          ['decidido_em', 'timestamptz'],
+        ], { unicos: ['(pedido_id, etapa_id, aprovador_id)'] }),
+
+        // ---------- Distribuição e Termos ----------
+        tbl('entregas', 'distribuicao', 'Separação e entrega de um pedido autorizado.', [
+          ['id', 'bigint', 'pk'],
+          ['pedido_id', 'bigint', 'fk:pedidos'],
+          ['status', 'varchar', '', 'em_separacao · entregue'],
+          ['separado_por', 'bigint', 'fk:users'],
+          ['entregue_por', 'bigint', 'fk:users null'],
+          ['recebedor_id', 'bigint', 'fk:users null', 'em aberto: nem sempre quem recebe tem login'],
+          ['recebedor_nome', 'varchar', 'null', 'preenchido quando não há usuário'],
+          ['entregue_em', 'timestamptz', 'null'],
+        ], { checks: ['status <> \'entregue\' OR recebedor_id IS NOT NULL OR recebedor_nome IS NOT NULL'] }),
+        tbl('entrega_itens', 'distribuicao', 'O que saiu em cada entrega. Para bens permanentes, aponta o bem entregue.', [
+          ['id', 'bigint', 'pk'],
+          ['entrega_id', 'bigint', 'fk:entregas'],
+          ['pedido_item_id', 'bigint', 'fk:pedido_itens'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['bem_id', 'bigint', 'ref:bens null', 'sem FK: Patrimônio recebe o bem pelo evento'],
+          ['quantidade', 'integer'],
+        ], { checks: ['quantidade > 0', 'bem_id IS NULL OR quantidade = 1'] }),
+        tbl('termos', 'distribuicao', 'Termo de recebimento ou de responsabilidade, com a forma de assinatura.', [
+          ['id', 'bigint', 'pk'],
+          ['entrega_id', 'bigint', 'fk:entregas'],
+          ['tipo', 'varchar', '', 'recebimento · responsabilidade'],
+          ['numero', 'varchar'],
+          ['forma_assinatura', 'varchar', 'null', 'em aberto: impresso · eletronico'],
+          ['arquivo_path', 'varchar', 'null', 'escaneado, quando impresso'],
+          ['gerado_em', 'timestamptz'],
+          ['assinado_em', 'timestamptz', 'null'],
+        ], { unicos: ['(tenant_id, numero)'] }),
+      ];
+
+      const porId = Object.fromEntries(TABELAS.map(t => [t.id, t]));
+      // Relações entre tabelas: o tenant_id aponta para todas e só poluiria o desenho.
+      const FKS = TABELAS.flatMap(t => t.cols.filter(c => c.fk && c.nome !== 'tenant_id').map(c => ({ de: t.id, col: c.nome, para: c.fk, nulo: c.nulo })));
+      const REFS = TABELAS.flatMap(t => t.cols.filter(c => c.ref).map(c => ({ de: t.id, col: c.nome, para: c.ref })));
+
+      return {
+        MOD, COR, tabelas: TABELAS,
+        mod: 'todos', busca: '', selId: 'pedidos', copiado: false,
+
+        // ---- listagem ----
+        get modulos() {
+          const q = this.busca.trim().toLowerCase();
+          const casa = t => !q || t.id.includes(q) || t.cols.some(c => c.nome.includes(q));
+          return Object.entries(MOD)
+            .filter(([id]) => this.mod === 'todos' || this.mod === id)
+            .map(([id, m]) => ({ id, ...m, tabelas: TABELAS.filter(t => t.modulo === id && casa(t)) }))
+            .filter(m => m.tabelas.length);
+        },
+        contaModulo(id) { return TABELAS.filter(t => t.modulo === id).length; },
+        escolher(id) {
+          this.selId = id;
+          if (window.innerWidth < 1024) this.$nextTick(() => this.$refs.painel.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        },
+
+        // ---- relações da tabela escolhida ----
+        get sel() { return porId[this.selId]; },
+        get saindo() { return [...new Set(FKS.filter(f => f.de === this.selId).map(f => f.para))].map(id => porId[id]); },
+        get entrando() { return [...new Set(FKS.filter(f => f.para === this.selId).map(f => f.de))].map(id => porId[id]); },
+        relacionada(id) { return id !== this.selId && (this.saindo.some(t => t.id === id) || this.entrando.some(t => t.id === id)); },
+        get refsSel() { return REFS.filter(r => r.de === this.selId); },
+
+        // ---- números do topo ----
+        get totais() {
+          return [
+            { n: TABELAS.length, label: 'Tabelas', sub: 'em 6 áreas: núcleo e 5 módulos' },
+            { n: TABELAS.length, label: 'Com tenant_id e RLS', sub: 'a própria tenants isola por id' },
+            { n: FKS.length, label: 'Relacionamentos (FK)', sub: 'sem contar o tenant_id' },
+            { n: REFS.length, label: 'Referências sem FK', sub: 'entre módulos, por evento' },
+          ];
+        },
+
+        // ---- conferência da regra “nenhum módulo lê tabela de outro” ----
+        get dependencias() {
+          return Object.entries(MOD).map(([id, m]) => {
+            const reais = [...new Set(FKS.filter(f => porId[f.de].modulo === id && porId[f.para].modulo !== id).map(f => porId[f.para].modulo))];
+            const fora = reais.filter(r => !m.dep.includes(r));
+            return { id, nome: m.nome, cor: m.cor, declaradas: m.dep, reais, fora, ok: fora.length === 0 };
+          });
+        },
+
+        // ---- SQL da tabela escolhida ----
+        get sql() {
+          const t = this.sel, col = t.id === 'tenants' ? 'id' : 'tenant_id';
+          const cond = `${col} = current_setting('app.tenant_id', true)::bigint`;
+          let s = `ALTER TABLE ${t.id} ENABLE ROW LEVEL SECURITY;\nALTER TABLE ${t.id} FORCE ROW LEVEL SECURITY;\n\nCREATE POLICY isolamento_tenant ON ${t.id}\n  USING (${cond})\n  WITH CHECK (${cond});`;
+          if (t.id === 'audits') s += `\n\n-- somente inclusão: o usuário da aplicação não altera nem apaga\nREVOKE UPDATE, DELETE, TRUNCATE ON audits FROM app_user;`;
+          return s;
+        },
+        async copiar() {
+          try { await navigator.clipboard.writeText(this.sql); this.copiado = true; setTimeout(() => { this.copiado = false; }, 2000); } catch (e) { /* sem permissão de área de transferência */ }
+        },
+
+        // ---- restrições de todas as tabelas ----
+        get restricoes() {
+          return TABELAS.flatMap(t => [
+            ...t.unicos.map(u => ({ t: t.id, tipo: 'único', txt: u })),
+            ...t.checks.map(c => ({ t: t.id, tipo: 'check', txt: c })),
+          ]);
+        },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="modelo()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Modelagem</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Modelo de dados</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        Um único banco PostgreSQL para todos os municípios. Toda tabela leva <code class="rounded bg-slate-800 px-1 text-emerald-300">tenant_id</code>, e o próprio banco só devolve as linhas do município da conexão (Row-Level Security). Escolha uma tabela para ver suas colunas, com quem ela se liga e o SQL de isolamento. Cada módulo tem as suas tabelas e só aponta para o núcleo; os vínculos entre módulos passam por eventos, não por chave estrangeira.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-7xl px-4 pb-20 sm:px-6">
+
+    <!-- números -->
+    <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <template x-for="t in totais" :key="t.label">
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p class="text-3xl font-semibold tracking-tight text-slate-900" x-text="t.n"></p>
+          <p class="mt-1 text-sm font-medium text-slate-700" x-text="t.label"></p>
+          <p class="text-xs text-slate-500" x-text="t.sub"></p>
+        </div>
+      </template>
+    </section>
+
+    <!-- filtros -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" @click="mod = 'todos'" class="rounded-full px-3 py-1 text-sm font-medium ring-1 transition"
+                :class="mod === 'todos' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'">Todos</button>
+        <template x-for="(m, id) in MOD" :key="id">
+          <button type="button" @click="mod = id" class="flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ring-1 transition"
+                  :class="mod === id ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'">
+            <span class="h-2 w-2 rounded-full" :class="COR[m.cor].dot"></span>
+            <span x-text="m.nome"></span>
+            <span class="text-xs opacity-60" x-text="contaModulo(id)"></span>
+          </button>
+        </template>
+        <input type="search" x-model="busca" placeholder="Buscar tabela ou coluna" aria-label="Buscar tabela ou coluna"
+               class="ml-auto w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm sm:w-64">
+      </div>
+    </section>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+
+      <!-- ================= TABELAS ================= -->
+      <section class="space-y-6">
+        <p x-show="!modulos.length" class="rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma tabela encontrada.</p>
+        <template x-for="m in modulos" :key="m.id">
+          <div>
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <span class="h-2.5 w-2.5 rounded-full" :class="COR[m.cor].dot"></span>
+              <span x-text="m.nome"></span>
+              <span class="text-xs font-normal text-slate-500" x-text="m.id === 'nucleo' ? 'sempre ativo' : 'depende de ' + m.dep.map(d => MOD[d].nome).join(' e ')"></span>
+            </h2>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <template x-for="t in m.tabelas" :key="t.id">
+                <button type="button" @click="escolher(t.id)" class="rounded-xl border border-l-4 bg-white p-3 text-left transition"
+                        :class="[COR[m.cor].bar, selId === t.id ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' : (relacionada(t.id) ? 'border-emerald-300 ring-1 ring-emerald-300' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50')]">
+                  <span class="block font-mono text-sm font-semibold text-slate-900" x-text="t.id"></span>
+                  <span class="mt-0.5 block text-xs text-slate-500"><span x-text="t.cols.length"></span> colunas</span>
+                  <span x-show="relacionada(t.id)" class="mt-1 block text-xs font-medium text-emerald-700" x-text="saindo.some(s => s.id === t.id) ? 'a tabela escolhida aponta para esta' : 'esta aponta para a tabela escolhida'"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- ================= DETALHE ================= -->
+      <section x-ref="painel" class="scroll-mt-4 lg:sticky lg:top-4 lg:self-start">
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="border-b border-slate-100 px-4 py-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="font-mono text-lg font-semibold text-slate-900" x-text="sel.id"></h2>
+              <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="COR[MOD[sel.modulo].cor].chip" x-text="MOD[sel.modulo].nome"></span>
+            </div>
+            <p class="mt-1 text-sm text-slate-600" x-text="sel.desc"></p>
+            <p x-show="sel.pacote" class="mt-1 text-xs text-slate-500" x-text="'Pacote: ' + sel.pacote"></p>
+          </div>
+
+          <!-- vizinhança -->
+          <div class="border-b border-slate-100 px-4 py-3">
+            <div class="grid items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
+              <div>
+                <p class="text-xs font-medium text-slate-500">Quem aponta para ela</p>
+                <div class="mt-1 flex flex-wrap gap-1">
+                  <template x-for="t in entrando" :key="t.id">
+                    <button type="button" @click="escolher(t.id)" class="flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-xs ring-1 ring-slate-200 hover:bg-slate-50">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="COR[MOD[t.modulo].cor].dot"></span><span x-text="t.id"></span>
+                    </button>
+                  </template>
+                  <span x-show="!entrando.length" class="text-xs text-slate-400">ninguém</span>
+                </div>
+              </div>
+              <div class="hidden items-center gap-1 text-slate-400 sm:flex"><span>→</span><span class="rounded-lg bg-emerald-600 px-2 py-1 font-mono text-xs font-semibold text-white" x-text="sel.id"></span><span>→</span></div>
+              <div>
+                <p class="text-xs font-medium text-slate-500">Para quem ela aponta</p>
+                <div class="mt-1 flex flex-wrap gap-1">
+                  <template x-for="t in saindo" :key="t.id">
+                    <button type="button" @click="escolher(t.id)" class="flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-xs ring-1 ring-slate-200 hover:bg-slate-50">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="COR[MOD[t.modulo].cor].dot"></span><span x-text="t.id"></span>
+                    </button>
+                  </template>
+                  <span x-show="!saindo.length" class="text-xs text-slate-400">ninguém</span>
+                </div>
+              </div>
+            </div>
+            <p class="mt-2 text-xs text-slate-500">O <code>tenant_id</code> aponta para <code>tenants</code> em todas as tabelas e não entra neste desenho.</p>
+            <template x-for="r in refsSel" :key="r.col">
+              <p class="mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-600">
+                <span class="font-mono font-semibold" x-text="r.col"></span> guarda o id de <span class="font-mono" x-text="r.para.replace('|', ' ou ')"></span>, mas <strong>sem chave estrangeira</strong>: é de outro módulo, e o vínculo é feito pelo evento.
+              </p>
+            </template>
+          </div>
+
+          <!-- colunas -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-xs font-medium text-slate-500">
+                <tr><th class="px-4 py-2">Coluna</th><th class="px-2 py-2">Tipo</th><th class="px-2 py-2">Marcas</th><th class="px-4 py-2">Observação</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="c in sel.cols" :key="c.nome">
+                  <tr :class="c.nome === 'tenant_id' ? 'bg-emerald-50/50' : ''">
+                    <td class="whitespace-nowrap px-4 py-1.5 font-mono text-xs font-semibold text-slate-900" x-text="c.nome"></td>
+                    <td class="whitespace-nowrap px-2 py-1.5 font-mono text-xs text-slate-500" x-text="c.tipo + (c.nulo ? '?' : '')"></td>
+                    <td class="px-2 py-1.5">
+                      <span class="flex flex-wrap gap-1">
+                        <span x-show="c.pk" class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-white">PK</span>
+                        <button type="button" x-show="c.fk" @click="escolher(c.fk)" class="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 hover:bg-sky-200" x-text="'FK → ' + c.fk"></button>
+                        <span x-show="c.ref" class="rounded border border-dashed border-slate-400 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" x-text="'ref → ' + c.ref.replace('|', ' ou ')"></span>
+                        <span x-show="c.uk" class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">único</span>
+                        <span x-show="c.nome === 'tenant_id'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">RLS</span>
+                      </span>
+                    </td>
+                    <td class="px-4 py-1.5 text-xs text-slate-500" x-text="c.nota"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p class="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">Um <span class="font-mono">?</span> depois do tipo indica coluna que aceita vazio.</p>
+
+          <!-- restrições da tabela -->
+          <div x-show="sel.unicos.length || sel.checks.length" class="border-t border-slate-100 px-4 py-3">
+            <p class="text-xs font-medium text-slate-500">Restrições no banco</p>
+            <ul class="mt-1 space-y-1">
+              <template x-for="u in sel.unicos" :key="u"><li class="text-xs"><span class="mr-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">único</span><code x-text="u"></code></li></template>
+              <template x-for="c in sel.checks" :key="c"><li class="text-xs"><span class="mr-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">check</span><code x-text="c"></code></li></template>
+            </ul>
+          </div>
+
+          <!-- sql -->
+          <div class="border-t border-slate-100 px-4 py-3">
+            <div class="flex items-center justify-between">
+              <p class="text-xs font-medium text-slate-500">Isolamento desta tabela</p>
+              <button type="button" @click="copiar()" class="rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50" x-text="copiado ? 'Copiado' : 'Copiar SQL'"></button>
+            </div>
+            <pre class="mt-2 max-h-56 overflow-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200" x-text="sql"></pre>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================= INDEPENDÊNCIA DOS MÓDULOS ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold text-slate-900">Os módulos continuam independentes?</h2>
+      <p class="mt-1 text-xs text-slate-500">Conferência feita sobre as chaves estrangeiras acima: cada módulo só pode apontar para o núcleo e para os módulos de que declara depender. Se uma FK passar disso, a linha fica vermelha.</p>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500">
+            <tr><th class="py-2 pr-4">Módulo</th><th class="py-2 pr-4">Declara depender de</th><th class="py-2 pr-4">FKs apontam para</th><th class="py-2">Situação</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <template x-for="d in dependencias" :key="d.id">
+              <tr>
+                <td class="py-2 pr-4"><span class="flex items-center gap-2 font-medium"><span class="h-2 w-2 rounded-full" :class="COR[d.cor].dot"></span><span x-text="d.nome"></span></span></td>
+                <td class="py-2 pr-4 text-xs text-slate-600" x-text="d.declaradas.length ? d.declaradas.map(x => MOD[x].nome).join(', ') : '—'"></td>
+                <td class="py-2 pr-4 text-xs text-slate-600" x-text="d.reais.length ? d.reais.map(x => MOD[x].nome).join(', ') : 'só o próprio módulo'"></td>
+                <td class="py-2">
+                  <span x-show="d.ok" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"><svg class="h-3 w-3 fill-none stroke-emerald-700 stroke-[3]"><use href="#i-check"/></svg>dentro do declarado</span>
+                  <span x-show="!d.ok" class="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800" x-text="'acopla com ' + d.fora.map(x => MOD[x].nome).join(', ')"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-xs text-slate-500">Estoque e Patrimônio não têm FK para Contratos, Pedidos nem Distribuição. As colunas <code>referencia_tipo</code> e <code>referencia_id</code>, e o <code>bem_id</code> de <code>entrega_itens</code>, guardam o vínculo sem constraint, preenchidas a partir dos eventos “item recebido” e “entrega confirmada”.</p>
+    </section>
+
+    <!-- ================= RLS ================= -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Como o tenant chega ao banco</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
+          <li>O middleware lê o subdomínio e descobre o tenant.</li>
+          <li>Dentro da transação, ele grava o id na conexão: <code class="rounded bg-slate-100 px-1 text-xs">select set_config('app.tenant_id', ?, true)</code>.</li>
+          <li>O global scope do trait <code class="rounded bg-slate-100 px-1 text-xs">BelongsToTenant</code> filtra pelo mesmo id. É a primeira barreira.</li>
+          <li>A policy de RLS é a segunda: mesmo uma query escrita sem o scope só enxerga as linhas do município.</li>
+          <li>Sem o <code class="rounded bg-slate-100 px-1 text-xs">app.tenant_id</code> definido, a comparação resulta em nulo e <strong>nenhuma linha</strong> aparece.</li>
+        </ol>
+        <p class="mt-3 text-xs text-slate-500">Jobs de fila e comandos do Artisan também precisam definir o tenant antes de tocar no banco.</p>
+      </section>
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Cuidados com o isolamento</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+          <li>A aplicação conecta com um usuário <strong>sem</strong> <code class="rounded bg-slate-100 px-1 text-xs">BYPASSRLS</code> e que não é dono das tabelas. Por isso o <code class="rounded bg-slate-100 px-1 text-xs">FORCE ROW LEVEL SECURITY</code>.</li>
+          <li>Para impedir uma FK que ligue linhas de municípios diferentes, as tabelas filhas podem usar FK composta: <code class="rounded bg-slate-100 px-1 text-xs">(tenant_id, pedido_id)</code> referenciando um único <code class="rounded bg-slate-100 px-1 text-xs">(tenant_id, id)</code>.</li>
+          <li>Os únicos são sempre por município: dois municípios podem ter o pedido 2026/000001 e o mesmo CNPJ de fornecedor.</li>
+          <li>A tabela <code class="rounded bg-slate-100 px-1 text-xs">audits</code> só aceita inserção: o usuário da aplicação perde UPDATE, DELETE e TRUNCATE.</li>
+        </ul>
+      </section>
+    </div>
+
+    <!-- ================= RESTRIÇÕES ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold text-slate-900">Regras de negócio que o banco também garante</h2>
+      <p class="mt-1 text-xs text-slate-500">A aplicação valida primeiro, para dar uma mensagem clara. O banco fica como rede de segurança, caso algo escape. Clique em uma linha para abrir a tabela.</p>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500">
+            <tr><th class="py-2 pr-4">Tabela</th><th class="py-2 pr-4">Tipo</th><th class="py-2">Regra</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <template x-for="r in restricoes" :key="r.t + r.txt">
+              <tr class="cursor-pointer hover:bg-slate-50" @click="escolher(r.t); window.scrollTo({ top: 0, behavior: 'smooth' })">
+                <td class="whitespace-nowrap py-1.5 pr-4 font-mono text-xs font-semibold" x-text="r.t"></td>
+                <td class="py-1.5 pr-4"><span class="rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="r.tipo === 'check' ? 'bg-rose-100 text-rose-800' : 'bg-violet-100 text-violet-800'" x-text="r.tipo"></span></td>
+                <td class="py-1.5 font-mono text-xs text-slate-600" x-text="r.txt"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Pontos em aberto que mexem no modelo</h2>
+      <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
+        <li><strong>Regra das duas autorizações.</strong> O modelo já aceita qualquer uma: etapas em ordem, com regra “qualquer” ou “todos” e escopo por tipo de item (<code>fluxo_etapas</code>). A escolha da SEMTRAS vira só configuração.</li>
+        <li><strong>Quem recebe tem sempre login?</strong> Por enquanto <code>entregas</code> aceita <code>recebedor_id</code> ou <code>recebedor_nome</code>. Se for sempre servidor com login, o nome em texto sai.</li>
+        <li><strong>Forma de assinatura do termo.</strong> <code>termos.forma_assinatura</code> e <code>arquivo_path</code> cobrem o impresso com upload do escaneado. A assinatura eletrônica pode pedir outras colunas (data, IP, certificado).</li>
+      </ol>
+    </section>
+
+    <p class="mt-8 text-xs text-slate-400">Modelo proposto, a validar na criação das migrations · nenhum dado real · fonte: <code>docs/requisitos/analise-requisitos.md</code>, seções 5, 7 e 9. Fluxo completo em <code>docs/fluxos/01-fluxo-do-sistema.html</code>.</p>
+  </div>
+</body>
+</html>
