@@ -14,14 +14,14 @@ Lista de trabalho das páginas de apresentação do projeto. Todas usam a mesma 
 | `fluxos/05-perfis-e-permissoes.html` | Matriz de perfis e permissões, com montagem do usuário (perfis acumulados e permissão específica), menu resultante e teste de ações que separa o que é Permissão do que é Policy (segregação de funções) |
 | `fluxos/06-mapa-de-modulos.html` | Liga e desliga os módulos, com o sistema bloqueando combinações inválidas (nos dois sentidos), o diagrama de dependências, o que some do menu, o comportamento das telas que cruzam módulos e os eventos entre módulos |
 | `fluxos/07-maquina-de-estados-do-pedido.html` | Os sete status e as transições permitidas, com quem dispara cada uma (permissão, Policy e módulo ligado), simulação de um pedido do rascunho à entrega e o mapa no código |
+| `fluxos/08-multi-tenant.html` | Santarém e um município fictício lado a lado (módulos, etapas, numeração, termos), o mesmo banco visto de cada um com as barreiras do global scope, do RLS e da FK composta ligáveis, cinco tentativas de acesso cruzado e o código do trait, do middleware e da policy |
 
 ## Pendentes
 
-Ordem sugerida: 7, 3, 9, 10. A 9 é a maior e fica por último.
+Ordem sugerida: 3, 9, 10. A 9 é a maior e fica por último.
 
 | # | Página | Para quê | Base nos documentos |
 |---|---|---|---|
-| 7 | **Multi-tenant** | Dois municípios lado a lado, com módulos e configurações diferentes, mostrando que os dados de um não aparecem no outro | Seção 5 |
 | 3 | **Fluxo da entrega em detalhe** | Separação, termo, baixa do saldo e mudança de localização, passo a passo. O fluxo completo já cobre isso de forma resumida, então é a menos urgente | Seção 4, itens 4 e 5 |
 | 9 | **Protótipo das telas** | Cadastro de produtos, usuários e perfis, movimentações, pedidos, aprovação, distribuição e relatórios, como base para os componentes Livewire | PDF (lista de telas) |
 | 10 | **Dashboard de relatórios básicos** | Estoque atual, itens sem saldo, consumo por setor, produtos mais utilizados e aprovações por gestor | PDF (relatórios principais) e seção 8 (MVP só com relatórios básicos) |

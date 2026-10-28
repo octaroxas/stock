@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multi-tenant — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <script>
+    function multitenant() {
+      const DOM = 'exemplo.gov.br';
+
+      // Classes completas (e não montadas por interpolação) para o Tailwind enxergar cada uma.
+      const TEN = {
+        1: { id: 1, nome: 'Santarém', org: 'SEMTRAS', sub: 'santarem', btn: 'bg-sky-600 text-white', chip: 'bg-sky-100 text-sky-800', dot: 'bg-sky-500', card: 'border-sky-300 bg-sky-50', txt: 'text-sky-800' },
+        2: { id: 2, nome: 'Vila Nova', org: 'Secretaria de Assistência Social', sub: 'vilanova', btn: 'bg-violet-600 text-white', chip: 'bg-violet-100 text-violet-800', dot: 'bg-violet-500', card: 'border-violet-300 bg-violet-50', txt: 'text-violet-800' },
+      };
+      const TEN_IDS = [1, 2];
+
+      // Mesmos módulos e cores de 06-mapa-de-modulos.html.
+      const MODS = [
+        { id: 'estoque', nome: 'Estoque', chip: 'bg-sky-100 text-sky-800' },
+        { id: 'patrimonio', nome: 'Patrimônio', chip: 'bg-violet-100 text-violet-800' },
+        { id: 'contratos', nome: 'Contratos e Recebimento', chip: 'bg-teal-100 text-teal-800' },
+        { id: 'pedidos', nome: 'Pedidos e Autorização', chip: 'bg-indigo-100 text-indigo-800' },
+        { id: 'distribuicao', nome: 'Distribuição e Termos', chip: 'bg-pink-100 text-pink-800' },
+        { id: 'relatorios', nome: 'Relatórios', chip: 'bg-orange-100 text-orange-800' },
+      ];
+      const MENU = [
+        ['nucleo', ['Usuários e perfis', 'Setores', 'Produtos', 'Configurações', 'Auditoria']],
+        ['estoque', ['Saldo e movimentações', 'Entrada fora de contrato']],
+        ['patrimonio', ['Bens (patrimônio)']],
+        ['contratos', ['Contratos', 'Recebimentos']],
+        ['pedidos', ['Pedidos', 'Autorizações']],
+        ['distribuicao', ['Separação e entrega', 'Termos']],
+        ['relatorios', ['Relatórios']],
+      ];
+
+      // Configuração de cada município (tenants.configuracoes e tenant_modulos).
+      const CFG = {
+        1: {
+          modulos: ['estoque', 'patrimonio', 'contratos', 'pedidos', 'distribuicao', 'relatorios'],
+          etapas: ['Setor A', 'Setor B'],
+          numeracao: 'AAAA/NNNNNN, reinicia a cada ano · próximo: 2026/000089',
+          cabecalho: 'Prefeitura Municipal de Santarém · SEMTRAS',
+          contrato: 'Sim: a entrada vem do recebimento conferido com nota fiscal',
+        },
+        2: {
+          modulos: ['estoque', 'pedidos', 'distribuicao', 'relatorios'],
+          etapas: ['Coordenação'],
+          numeracao: 'NNNN/AAAA, reinicia a cada ano · próximo: 0003/2026',
+          cabecalho: 'Prefeitura Municipal de Vila Nova · Assistência Social',
+          contrato: 'Não: sem o módulo Contratos, só entrada manual com justificativa',
+        },
+      };
+      const CAMPOS = [
+        { k: 'Subdomínio', get: t => ({ txt: `${TEN[t].sub}.${DOM}` }) },
+        { k: 'Módulos ativos', get: t => ({ mods: CFG[t].modulos }) },
+        { k: 'Etapas de autorização', get: t => ({ txt: `${CFG[t].etapas.length} · ${CFG[t].etapas.join(' → ')}` }) },
+        { k: 'Numeração dos pedidos e termos', get: t => ({ txt: CFG[t].numeracao }) },
+        { k: 'Cabeçalho dos termos', get: t => ({ txt: CFG[t].cabecalho }) },
+        { k: 'Entrada de estoque exige contrato', get: t => ({ txt: CFG[t].contrato }) },
+      ];
+
+      // O "banco" inteiro, com os dois municípios misturados nas mesmas tabelas. Dados fictícios.
+      const BANCO = {
+        pedidos: { cols: [['numero', 'Número'], ['setor', 'Setor'], ['status', 'Status']], rows: [
+          { id: 1, t: 1, numero: '2026/000001', setor: 'Setor de Atendimento', status: 'Atendido' },
+          { id: 2, t: 1, numero: '2026/000087', setor: 'Setor de Atendimento', status: 'Enviado para aprovação' },
+          { id: 3, t: 1, numero: '2026/000088', setor: 'Almoxarifado', status: 'Aprovado' },
+          { id: 4, t: 2, numero: '0001/2026', setor: 'CRAS Centro', status: 'Atendido' },
+          { id: 5, t: 2, numero: '0002/2026', setor: 'CRAS Centro', status: 'Rascunho' },
+        ] },
+        itens: { cols: [['codigo', 'Código'], ['nome', 'Item'], ['tipo', 'Tipo']], rows: [
+          { id: 1, t: 1, codigo: 'PAP-001', nome: 'Papel A4 (resma)', tipo: 'consumo' },
+          { id: 2, t: 1, codigo: 'CAD-014', nome: 'Cadeira giratória', tipo: 'permanente' },
+          { id: 3, t: 1, codigo: 'CAF-002', nome: 'Café (pacote)', tipo: 'consumo' },
+          { id: 4, t: 2, codigo: 'PAP-001', nome: 'Papel A4 (resma)', tipo: 'consumo' },
+          { id: 5, t: 2, codigo: 'CST-001', nome: 'Cesta básica', tipo: 'consumo' },
+          { id: 6, t: 2, codigo: 'COB-003', nome: 'Cobertor', tipo: 'consumo' },
+        ] },
+        usuarios: { cols: [['nome', 'Nome'], ['email', 'E-mail'], ['perfil', 'Perfil']], rows: [
+          { id: 1, t: 1, nome: 'Ana Souza', email: 'ana.souza@exemplo.gov.br', perfil: 'Solicitante' },
+          { id: 2, t: 1, nome: 'Carlos Lima', email: 'carlos.lima@exemplo.gov.br', perfil: 'Gestor_autorizador' },
+          { id: 3, t: 1, nome: 'João Silva', email: 'joao.silva@exemplo.gov.br', perfil: 'Estoque' },
+          { id: 4, t: 2, nome: 'João Silva', email: 'joao.silva@exemplo.gov.br', perfil: 'Solicitante' },
+          { id: 5, t: 2, nome: 'Marta Reis', email: 'marta.reis@exemplo.gov.br', perfil: 'Administrador' },
+        ] },
+        setores: { cols: [['nome', 'Setor'], ['nivel', 'Nível']], rows: [
+          { id: 1, t: 1, nome: 'SEMTRAS', nivel: 'secretaria' },
+          { id: 2, t: 1, nome: 'Setor de Atendimento', nivel: 'setor' },
+          { id: 3, t: 1, nome: 'Almoxarifado', nivel: 'setor' },
+          { id: 4, t: 2, nome: 'Secretaria de Assistência Social', nivel: 'secretaria' },
+          { id: 5, t: 2, nome: 'CRAS Centro', nivel: 'setor' },
+        ] },
+      };
+      const TABELAS = [['pedidos', 'pedidos'], ['itens', 'itens'], ['usuarios', 'users'], ['setores', 'setores']];
+
+      const PRESETS = [
+        { nome: 'Como em produção', scope: true, rls: true, fk: true },
+        { nome: 'Esqueceram o RLS', scope: true, rls: false, fk: true },
+        { nome: 'Esqueceram o scope', scope: false, rls: true, fk: true },
+        { nome: 'Sem proteção nenhuma', scope: false, rls: false, fk: false },
+      ];
+
+      // Cada barreira fecha o cenário, na ordem em que age. flag null = o cenário contorna essa barreira de propósito.
+      const CEN = [
+        { id: 'url', titulo: 'Abrir pelo endereço o pedido de outro município', ctx: 1,
+          como: 'Quem está em Santarém digita /pedidos/4, que é o pedido 0001/2026 de Vila Nova.',
+          barreiras: [
+            { nome: 'Global scope', flag: 'scope', resp: '404: a busca do pedido já sai filtrada e não acha a linha' },
+            { nome: 'RLS', flag: 'rls', resp: '404: o banco não devolve a linha, mesmo sem o scope' },
+          ],
+          vaza: '200: abre o pedido 0001/2026 do CRAS Centro, de outro município',
+          nota: 'A resposta é 404, não 403: um 403 confirmaria que o pedido existe.' },
+        { id: 'semscope', titulo: 'Consulta escrita sem o scope', ctx: 1,
+          como: 'Alguém escreve withoutGlobalScopes() ou um DB::select cru e esquece o filtro por município.',
+          barreiras: [
+            { nome: 'Global scope', flag: null, resp: '' },
+            { nome: 'RLS', flag: 'rls', resp: 'O banco só devolve as linhas de Santarém, com ou sem filtro na query' },
+          ],
+          vaza: 'Devolve as linhas dos dois municípios',
+          nota: 'É o motivo de o RLS existir: o scope depende de cada query lembrar dele.' },
+        { id: 'insert', titulo: 'Gravar com o tenant_id de outro município', ctx: 1,
+          como: 'Um INSERT em SQL cru, em Santarém, com tenant_id = 2.',
+          barreiras: [
+            { nome: 'RLS (WITH CHECK)', flag: 'rls', resp: 'O banco recusa: a linha nova não pertence ao município da conexão' },
+          ],
+          vaza: 'Grava um pedido dentro de Vila Nova',
+          nota: 'Pelo Eloquent isso nem acontece: o trait preenche o tenant_id sozinho ao criar o registro.' },
+        { id: 'job', titulo: 'Job de fila ou comando que não definiu o tenant', ctx: 0,
+          como: 'Um job roda fora de qualquer requisição web, então ninguém resolveu o município.',
+          barreiras: [
+            { nome: 'Global scope', flag: 'scope', resp: 'Lança TenantNaoDefinido e a query nem chega ao banco' },
+            { nome: 'RLS', flag: 'rls', resp: 'A comparação com app.tenant_id vazio dá nulo e volta com 0 linhas' },
+          ],
+          vaza: 'O job lê e altera os dados de todos os municípios',
+          nota: 'Por isso os jobs recebem o id do tenant e o definem antes de tocar no banco.' },
+        { id: 'fk', titulo: 'Ligar um pedido de um município a um item de outro', ctx: 1,
+          como: 'Um pedido de Santarém passa a apontar para o item 4 (papel A4 de Vila Nova).',
+          barreiras: [
+            { nome: 'FK composta', flag: 'fk', resp: 'Violação da FK (tenant_id, item_id): o item não existe naquele município' },
+          ],
+          vaza: 'Grava a ligação entre os dois municípios',
+          nota: 'O Postgres confere chave estrangeira ignorando o RLS, então só a FK composta fecha esse caso.' },
+      ];
+
+      return {
+        TEN, TEN_IDS, MODS, MENU, CAMPOS, CFG, TABELAS, PRESETS, BANCO, DOM,
+        ctx: 1, tabela: 'pedidos', scope: true, rls: true, fk: true,
+
+        // ---- comparação ----
+        celula(campo, t) { return campo.get(t); },
+        difere(campo) { return JSON.stringify(campo.get(1)) !== JSON.stringify(campo.get(2)); },
+        mod(id) { return MODS.find(m => m.id === id); },
+        menu(t) {
+          const on = ['nucleo', ...CFG[t].modulos];
+          return MENU.map(([m, telas]) => ({ m, ativo: on.includes(m), nome: m === 'nucleo' ? 'Núcleo' : this.mod(m).nome, telas }));
+        },
+        totalTelas(t) { return this.menu(t).filter(g => g.ativo).reduce((n, g) => n + g.telas.length, 0); },
+
+        // ---- o banco visto de dentro ----
+        aplicar(p) { this.scope = p.scope; this.rls = p.rls; this.fk = p.fk; },
+        get presetAtual() { return PRESETS.findIndex(p => p.scope === this.scope && p.rls === this.rls && p.fk === this.fk); },
+        get cols() { return BANCO[this.tabela].cols; },
+        get linhas() {
+          const c = this.ctx;
+          return BANCO[this.tabela].rows.map(r => {
+            let barrado = null;
+            if (this.scope && (c === 0 || r.t !== c)) barrado = 'scope';
+            else if (this.rls && (c === 0 || r.t !== c)) barrado = 'rls';
+            return { r, barrado, vazou: !barrado && r.t !== c };
+          });
+        },
+        get resumo() {
+          const l = this.linhas;
+          return {
+            proprias: l.filter(x => !x.barrado && !x.vazou).length,
+            vazou: l.filter(x => x.vazou).length,
+            total: l.length,
+          };
+        },
+        get passos() {
+          const web = this.ctx !== 0, t = TEN[this.ctx];
+          return [
+            { nome: 'Subdomínio', val: web ? `${t.sub}.${DOM}` : 'sem requisição web: job ou comando', on: web },
+            { nome: 'Middleware', val: web ? `tenant_id = ${this.ctx}` : 'nenhum tenant resolvido', on: web },
+            { nome: 'set_config', val: web ? `app.tenant_id = ${this.ctx}` : 'app.tenant_id vazio', on: web },
+            { nome: 'Global scope', val: this.scope ? 'where tenant_id = tenant atual' : 'desligado', on: this.scope },
+            { nome: 'Row-Level Security', val: this.rls ? 'USING tenant_id = app.tenant_id' : 'desligado', on: this.rls },
+          ];
+        },
+        get sql() {
+          const tb = this.tabela === 'usuarios' ? 'users' : this.tabela, c = this.ctx, n = [];
+          n.push(c ? `-- conexão: set_config('app.tenant_id', '${c}', true)` : '-- conexão: app.tenant_id não definido');
+          if (this.scope) n.push(c ? `-- Eloquent acrescenta: where ${tb}.tenant_id = ${c}` : '-- Eloquent: TenantNaoDefinido, a query nem sai da aplicação');
+          if (this.rls) n.push("-- Postgres acrescenta: tenant_id = current_setting('app.tenant_id', true)::bigint");
+          return n.join('\n') + `\nselect * from ${tb};`;
+        },
+        get ctxNome() { return this.ctx ? TEN[this.ctx].nome : 'nenhum município'; },
+
+        // ---- tentativas de acesso cruzado ----
+        get cenarios() {
+          return CEN.map(c => {
+            const bar = c.barreiras.map(b => ({ ...b, on: b.flag ? this[b.flag] : false }));
+            const hit = bar.find(b => b.on);
+            return { ...c, bar, hit, vazou: !hit };
+          });
+        },
+        get vazamentos() { return this.cenarios.filter(c => c.vazou).length; },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="multitenant()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Multi-tenant</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Um sistema, vários municípios, nenhum dado misturado</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        O tenant é o município. Todos usam o mesmo sistema e o mesmo banco PostgreSQL, mas cada um tem os seus módulos, o seu fluxo de autorização e os seus dados. O isolamento tem duas barreiras: o código filtra por <code class="rounded bg-slate-800 px-1 text-emerald-300">tenant_id</code> e o próprio banco recusa o resto (Row-Level Security). Abaixo, Santarém e um segundo município fictício lado a lado. Desligue as barreiras e veja o que vaza.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-7xl px-4 pb-20 sm:px-6">
+
+    <!-- ================= LADO A LADO ================= -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">1 · Dois municípios, duas configurações</h2>
+      <p class="mt-1 text-xs text-slate-500">As linhas destacadas são as que diferem. Tudo isto vive em <code>tenants.configuracoes</code> e <code>tenant_modulos</code>, sem uma linha de código diferente por município.</p>
+
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full min-w-[44rem] text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500">
+            <tr>
+              <th class="w-1/4 py-2 pr-3">Configuração</th>
+              <template x-for="t in TEN_IDS" :key="t">
+                <th class="pr-3"><span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="TEN[t].chip" x-text="TEN[t].nome"></span> <span class="ml-1 font-normal" x-text="TEN[t].org"></span></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <template x-for="c in CAMPOS" :key="c.k">
+              <tr class="align-top" :class="difere(c) ? 'bg-amber-50/60' : ''">
+                <td class="py-2 pr-3 text-xs font-medium text-slate-600" x-text="c.k"></td>
+                <template x-for="t in TEN_IDS" :key="t">
+                  <td class="py-2 pr-3">
+                    <span x-show="celula(c, t).txt" class="text-sm" x-text="celula(c, t).txt"></span>
+                    <div x-show="celula(c, t).mods" class="flex flex-wrap gap-1">
+                      <template x-for="m in MODS" :key="m.id">
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                              :class="(celula(c, t).mods || []).includes(m.id) ? m.chip : 'bg-slate-50 text-slate-300 line-through'" x-text="m.nome"></span>
+                      </template>
+                    </div>
+                  </td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <template x-for="t in TEN_IDS" :key="t">
+          <div class="rounded-xl border p-4" :class="TEN[t].card">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-sm font-semibold" :class="TEN[t].txt">Menu de quem entra em <span x-text="TEN[t].sub + '.' + DOM"></span></p>
+              <span class="text-xs text-slate-600"><span x-text="totalTelas(t)"></span> telas</span>
+            </div>
+            <ul class="mt-2 space-y-1.5">
+              <template x-for="g in menu(t)" :key="g.m">
+                <li class="text-xs" :class="g.ativo ? 'text-slate-800' : 'text-slate-400'">
+                  <span class="font-semibold" :class="g.ativo ? '' : 'line-through'" x-text="g.nome"></span>
+                  <span x-show="g.ativo" x-text="' · ' + g.telas.join(', ')"></span>
+                  <span x-show="!g.ativo"> · módulo desligado neste município</span>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </template>
+      </div>
+      <p class="mt-3 text-xs text-slate-500">Desativar um módulo esconde menu, rotas e API, mas não apaga nada. Os municípios do exemplo são fictícios, e Vila Nova só usa itens de consumo porque não tem Patrimônio. Veja <code>06-mapa-de-modulos.html</code>.</p>
+    </section>
+
+    <!-- ================= BANCO ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">2 · O mesmo banco visto de cada município</h2>
+      <p class="mt-1 text-xs text-slate-500">As tabelas abaixo guardam os dois municípios misturados, com a coluna <code>tenant_id</code>. Escolha de onde a consulta parte e quais barreiras estão ligadas.</p>
+
+      <div class="mt-4 grid gap-4 lg:grid-cols-3">
+        <div>
+          <p class="text-xs font-medium text-slate-500">A consulta parte de</p>
+          <div class="mt-1.5 flex flex-wrap gap-2">
+            <template x-for="t in TEN_IDS" :key="t">
+              <button type="button" @click="ctx = t" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+                      :class="ctx === t ? TEN[t].btn : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'" :aria-pressed="ctx === t" x-text="TEN[t].nome"></button>
+            </template>
+            <button type="button" @click="ctx = 0" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+                    :class="ctx === 0 ? 'bg-slate-800 text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'" :aria-pressed="ctx === 0">Nenhum (job)</button>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs font-medium text-slate-500">Tabela</p>
+          <div class="mt-1.5 flex flex-wrap gap-2">
+            <template x-for="tb in TABELAS" :key="tb[0]">
+              <button type="button" @click="tabela = tb[0]" class="rounded-lg px-2.5 py-1.5 text-xs font-semibold transition"
+                      :class="tabela === tb[0] ? 'bg-emerald-600 text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'" :aria-pressed="tabela === tb[0]" x-text="tb[1]"></button>
+            </template>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs font-medium text-slate-500">Atalhos</p>
+          <div class="mt-1.5 flex flex-wrap gap-2">
+            <template x-for="(p, i) in PRESETS" :key="p.nome">
+              <button type="button" @click="aplicar(p)" class="rounded-full px-3 py-1 text-xs font-medium transition"
+                      :class="presetAtual === i ? 'bg-slate-900 text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'" x-text="p.nome"></button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 rounded-xl bg-slate-50 p-3">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="scope" class="h-4 w-4 accent-emerald-600"><span><strong>Global scope</strong> do trait <code>BelongsToTenant</code></span></label>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="rls" class="h-4 w-4 accent-emerald-600"><span><strong>Row-Level Security</strong> no PostgreSQL</span></label>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="fk" class="h-4 w-4 accent-emerald-600"><span><strong>FK composta</strong> <code>(tenant_id, id)</code></span></label>
+      </div>
+
+      <ol class="mt-4 grid gap-2 sm:grid-cols-5">
+        <template x-for="(p, i) in passos" :key="p.nome">
+          <li class="rounded-xl border p-3" :class="p.on ? 'border-emerald-300 bg-emerald-50' : 'border-dashed border-slate-300 bg-slate-50'">
+            <p class="flex items-center gap-1.5 text-xs font-semibold" :class="p.on ? 'text-emerald-900' : 'text-slate-400'">
+              <span class="inline-grid h-4 w-4 place-items-center rounded-full text-[10px] text-white" :class="p.on ? 'bg-emerald-600' : 'bg-slate-300'" x-text="i + 1"></span><span x-text="p.nome"></span>
+            </p>
+            <p class="mt-1 break-words text-[11px]" :class="p.on ? 'text-slate-700' : 'text-slate-400'" x-text="p.val"></p>
+          </li>
+        </template>
+      </ol>
+
+      <pre class="mt-4 overflow-x-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200" x-text="sql"></pre>
+
+      <div class="mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm" role="status" aria-live="polite"
+           :class="resumo.vazou ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-emerald-300 bg-emerald-50 text-emerald-900'">
+        <svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-[3]" :class="resumo.vazou ? 'stroke-rose-600' : 'stroke-emerald-600'"><use :href="resumo.vazou ? '#i-x' : '#i-check'"/></svg>
+        <span x-show="resumo.vazou"><strong>Vazamento:</strong> <span x-text="resumo.vazou"></span> de <span x-text="resumo.total"></span> linhas aparecem para quem parte de <strong x-text="ctxNome"></strong>, incluindo dados de outro município.</span>
+        <span x-show="!resumo.vazou &amp;&amp; ctx !== 0">Quem parte de <strong x-text="ctxNome"></strong> vê <span x-text="resumo.proprias"></span> de <span x-text="resumo.total"></span> linhas, todas do próprio município.</span>
+        <span x-show="!resumo.vazou &amp;&amp; ctx === 0">Sem município definido, a consulta não devolve nenhuma linha.</span>
+      </div>
+
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full min-w-[36rem] text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500">
+            <tr>
+              <th class="py-2 pr-3">id</th><th class="pr-3">tenant_id</th>
+              <template x-for="c in cols" :key="c[0]"><th class="pr-3" x-text="c[1]"></th></template>
+              <th>Para quem consulta</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <template x-for="l in linhas" :key="tabela + l.r.id">
+              <tr :class="l.vazou ? 'bg-rose-50' : l.barrado ? 'text-slate-400' : ''">
+                <td class="py-1.5 pr-3 tabular-nums" x-text="l.r.id"></td>
+                <td class="pr-3"><span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="TEN[l.r.t].chip" x-text="l.r.t + ' · ' + TEN[l.r.t].nome"></span></td>
+                <template x-for="c in cols" :key="c[0]"><td class="pr-3" :class="l.barrado ? 'line-through' : ''" x-text="l.r[c[0]]"></td></template>
+                <td class="whitespace-nowrap text-xs font-semibold">
+                  <span x-show="l.vazou" class="text-rose-700">vazou</span>
+                  <span x-show="!l.vazou &amp;&amp; !l.barrado" class="text-emerald-700">visível</span>
+                  <span x-show="l.barrado === 'scope'">barrada pelo scope</span>
+                  <span x-show="l.barrado === 'rls'">barrada pelo RLS</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-xs text-slate-500">Repare no que se repete sem conflito: o papel A4 (<code>PAP-001</code>) existe nos dois catálogos, e João Silva tem o mesmo e-mail nos dois municípios, como duas contas separadas. Os índices únicos incluem o <code>tenant_id</code>, por exemplo <code>(tenant_id, codigo)</code> e <code>(tenant_id, email)</code>.</p>
+    </section>
+
+    <!-- ================= CENÁRIOS ================= -->
+    <section class="mt-6">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold text-slate-900">3 · Tentativas de acesso entre municípios</h2>
+        <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="vazamentos ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'"
+              x-text="vazamentos ? vazamentos + ' de ' + cenarios.length + ' tentativas passam' : 'todas as ' + cenarios.length + ' tentativas barradas'"></span>
+      </div>
+      <p class="mt-1 text-xs text-slate-500">Segue as mesmas chaves da seção anterior. Cada tentativa é fechada pela primeira barreira ligada que a alcança.</p>
+
+      <div class="mt-3 grid gap-4 md:grid-cols-2">
+        <template x-for="c in cenarios" :key="c.id">
+          <div class="rounded-2xl border bg-white p-4 shadow-sm" :class="c.vazou ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-200'">
+            <p class="text-sm font-semibold text-slate-900" x-text="c.titulo"></p>
+            <p class="mt-1 text-xs text-slate-600" x-text="c.como"></p>
+            <ul class="mt-3 flex flex-wrap gap-2">
+              <template x-for="b in c.bar" :key="b.nome">
+                <li class="rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                    :class="b === c.hit ? 'bg-emerald-600 text-white' : b.on ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'">
+                  <span x-text="b.nome"></span>
+                  <span x-text="b.flag === null ? ' · contornada' : b.on ? ' · ligada' : ' · desligada'"></span>
+                </li>
+              </template>
+            </ul>
+            <p class="mt-3 flex items-start gap-2 text-sm" :class="c.vazou ? 'font-medium text-rose-800' : 'text-emerald-900'">
+              <svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-[3]" :class="c.vazou ? 'stroke-rose-600' : 'stroke-emerald-600'"><use :href="c.vazou ? '#i-x' : '#i-check'"/></svg>
+              <span x-text="c.vazou ? c.vaza : c.hit.resp"></span>
+            </p>
+            <p class="mt-2 text-xs text-slate-500" x-text="c.nota"></p>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ================= CÓDIGO ================= -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Como o tenant chega ao banco</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
+          <li>O middleware lê o subdomínio e descobre o tenant. Se não existe, responde 404.</li>
+          <li>Dentro da transação, grava o id na conexão: <code class="rounded bg-slate-100 px-1 text-xs">select set_config('app.tenant_id', ?, true)</code>.</li>
+          <li>O global scope do trait <code class="rounded bg-slate-100 px-1 text-xs">BelongsToTenant</code> filtra pelo mesmo id. É a primeira barreira.</li>
+          <li>A policy de RLS é a segunda: mesmo uma query sem o scope só enxerga as linhas do município.</li>
+          <li>Sem o <code class="rounded bg-slate-100 px-1 text-xs">app.tenant_id</code> definido, a comparação resulta em nulo e <strong>nenhuma linha</strong> aparece.</li>
+        </ol>
+        <h3 class="mt-5 text-sm font-semibold text-slate-900">Cuidados</h3>
+        <ul class="mt-2 list-disc space-y-2 pl-5 text-sm text-slate-700">
+          <li>A aplicação conecta com um usuário <strong>sem</strong> <code class="rounded bg-slate-100 px-1 text-xs">BYPASSRLS</code> e que não é dono das tabelas. Por isso o <code class="rounded bg-slate-100 px-1 text-xs">FORCE ROW LEVEL SECURITY</code>.</li>
+          <li>Jobs de fila e comandos do Artisan recebem o id do tenant e o definem antes de tocar no banco.</li>
+          <li>A tabela <code class="rounded bg-slate-100 px-1 text-xs">audits</code> também leva <code class="rounded bg-slate-100 px-1 text-xs">tenant_id</code> e só aceita inserção.</li>
+        </ul>
+        <p class="mt-3 text-xs text-slate-500">As 26 tabelas e o SQL de cada uma estão em <code>04-modelo-de-dados.html</code>.</p>
+      </section>
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Como fica no código</h2>
+        <pre class="mt-3 max-h-[28rem] overflow-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200">// 1ª barreira: leitura filtrada e gravação com o tenant certo
+trait BelongsToTenant
+{
+    protected static function bootBelongsToTenant(): void
+    {
+        static::addGlobalScope('tenant', function (Builder $query) {
+            $query->where($query->qualifyColumn('tenant_id'), Tenant::atualOuFalha()->id);
+        });
+
+        static::creating(function (Model $model) {
+            $model->tenant_id = Tenant::atualOuFalha()->id;
+        });
+    }
+}
+
+// Middleware: resolve o município e avisa o banco
+public function handle(Request $request, Closure $next)
+{
+    $subdominio = explode('.', $request->getHost())[0];
+    $tenant = Tenant::porSubdominio($subdominio); // ver ponto 1 abaixo
+    abort_if(! $tenant, 404);
+
+    Tenant::definirAtual($tenant);
+
+    return DB::transaction(function () use ($tenant, $request, $next) {
+        DB::select("select set_config('app.tenant_id', ?, true)", [$tenant->id]);
+        return $next($request);
+    });
+}
+
+-- 2ª barreira: no PostgreSQL, uma policy por tabela
+ALTER TABLE pedidos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pedidos FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY isolamento_tenant ON pedidos
+  USING (tenant_id = current_setting('app.tenant_id', true)::bigint)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::bigint);</pre>
+      </section>
+    </div>
+
+    <!-- ================= DIVISÃO ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold text-slate-900">O que é de cada município e o que é de todos</h2>
+      <div class="mt-3 grid gap-6 md:grid-cols-2">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">De cada município (leva tenant_id)</p>
+          <ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
+            <li>Usuários, perfis e a ligação entre eles (<code>team_id</code> do Spatie é o tenant).</li>
+            <li>Secretaria e setores.</li>
+            <li>Catálogo de itens, com código único por município.</li>
+            <li>Módulos ativos e vigência (<code>tenant_modulos</code>).</li>
+            <li>Fluxo de autorização: quantas etapas e quem aprova cada uma.</li>
+            <li>Numeração de pedidos e termos, logo e cabeçalho dos termos.</li>
+            <li>Todos os dados dos módulos e a auditoria.</li>
+          </ul>
+        </div>
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">De todos (um só para o sistema)</p>
+          <ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
+            <li>O código e o esquema do banco: um deploy e um conjunto de migrations para todos.</li>
+            <li>O catálogo de permissões (<code>permissions</code>), definido pelo código. O que é por município é quem recebe cada permissão.</li>
+            <li>O servidor, a fila e o usuário de conexão ao banco.</li>
+          </ul>
+          <p class="mt-3 text-xs text-slate-500">Se um município grande exigir isolamento total, ele pode migrar depois para um banco próprio, sem mudar o código das telas.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Pontos assumidos nesta página, a confirmar</h2>
+      <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
+        <li><strong>Achar o município antes de ele existir na conexão.</strong> O middleware precisa consultar <code>tenants</code> pelo subdomínio, mas essa tabela tem RLS por <code>id</code> e ainda não há <code>app.tenant_id</code>. Falta decidir como: uma função <code>SECURITY DEFINER</code> só para esse lookup, ou uma policy de leitura restrita ao subdomínio.</li>
+        <li><strong>Operador da plataforma.</strong> Os documentos não preveem alguém que veja todos os municípios. Aqui ninguém cruza municípios pela interface, e a manutenção entra por comando com o tenant definido. Se existir um super-administrador, ele precisa de um papel fora do tenant e de uma policy própria.</li>
+        <li><strong>Uma pessoa em dois municípios</strong> tem duas contas, com o mesmo e-mail. O e-mail é único por município, não no sistema.</li>
+        <li><strong>Subdomínio como identificação.</strong> Domínio próprio de cada município não está previsto.</li>
+        <li><strong>Regra das duas autorizações</strong> de Santarém (em sequência, qualquer uma basta, ou por tipo de item) e quais são os dois setores, ainda em aberto, e a forma de assinatura do termo. A configuração de Vila Nova, com uma etapa, é só um exemplo.</li>
+      </ol>
+    </section>
+
+    <p class="mt-8 text-xs text-slate-400">Município Vila Nova, usuários, pedidos, itens e subdomínios fictícios · fonte: <code>docs/requisitos/analise-requisitos.md</code>, seções 5 e 6. Tabelas e RLS em <code>docs/fluxos/04-modelo-de-dados.html</code> e módulos em <code>docs/fluxos/06-mapa-de-modulos.html</code>.</p>
+  </div>
+</body>
+</html>
