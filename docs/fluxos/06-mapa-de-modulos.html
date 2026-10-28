@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapa de módulos e dependências — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <script>
+    function modulos() {
+      // Classes completas (e não montadas por interpolação) para o Tailwind enxergar cada uma.
+      const COR = {
+        slate:  { dot: 'bg-slate-500',  chip: 'bg-slate-100 text-slate-700',   no: 'fill-slate-100 stroke-slate-500' },
+        sky:    { dot: 'bg-sky-500',    chip: 'bg-sky-100 text-sky-800',       no: 'fill-sky-100 stroke-sky-500' },
+        violet: { dot: 'bg-violet-500', chip: 'bg-violet-100 text-violet-800', no: 'fill-violet-100 stroke-violet-500' },
+        teal:   { dot: 'bg-teal-500',   chip: 'bg-teal-100 text-teal-800',     no: 'fill-teal-100 stroke-teal-500' },
+        indigo: { dot: 'bg-indigo-500', chip: 'bg-indigo-100 text-indigo-800', no: 'fill-indigo-100 stroke-indigo-500' },
+        pink:   { dot: 'bg-pink-500',   chip: 'bg-pink-100 text-pink-800',     no: 'fill-pink-100 stroke-pink-500' },
+        orange: { dot: 'bg-orange-500', chip: 'bg-orange-100 text-orange-800', no: 'fill-orange-100 stroke-orange-500' },
+      };
+
+      const TODOS = ['estoque', 'patrimonio', 'contratos', 'pedidos', 'distribuicao', 'relatorios'];
+
+      // exige: 'algum' = basta um da lista; 'todos' = precisa de todos.
+      const MODS = [
+        { id: 'nucleo', nome: 'Núcleo', cor: 'slate', fixo: true, faz: 'Tenants, usuários, perfis, setores, auditoria, catálogo de itens e cadastro de módulos. Não é módulo: nunca desliga.', exige: null, exigeTxt: '', dados: '' },
+        { id: 'estoque', nome: 'Estoque', cor: 'sky', faz: 'Saldo, movimentações, estoque mínimo e alertas dos itens de consumo.', exige: null, exigeTxt: 'só o Núcleo', dados: '1.248 movimentações' },
+        { id: 'patrimonio', nome: 'Patrimônio', cor: 'violet', faz: 'Unidades tombadas, localização e responsável atuais, histórico, transferência, baixa e etiqueta/QR.', exige: null, exigeTxt: 'só o Núcleo', dados: '312 bens' },
+        { id: 'contratos', nome: 'Contratos e Recebimento', cor: 'teal', faz: 'Fornecedor, contrato, saldo contratado e conferência do recebimento com a nota fiscal. Alimenta Estoque e Patrimônio.', exige: { tipo: 'algum', mods: ['estoque', 'patrimonio'] }, exigeTxt: 'Estoque e/ou Patrimônio ativo', dados: '18 contratos' },
+        { id: 'pedidos', nome: 'Pedidos e Autorização', cor: 'indigo', faz: 'Pedido do setor e fluxo de aprovação com N etapas configuráveis.', exige: { tipo: 'algum', mods: ['estoque', 'patrimonio'] }, exigeTxt: 'Estoque e/ou Patrimônio ativo', dados: '96 pedidos' },
+        { id: 'distribuicao', nome: 'Distribuição e Termos', cor: 'pink', faz: 'Separação, termo de recebimento, termo de responsabilidade e assinatura.', exige: { tipo: 'todos', mods: ['pedidos'] }, exigeTxt: 'Pedidos e Autorização ativo', dados: '74 entregas e termos' },
+        { id: 'relatorios', nome: 'Relatórios', cor: 'orange', faz: 'Consumo por setor, itens sem saldo, aprovações por gestor. Mostra os relatórios dos módulos ativos.', exige: { tipo: 'algum', mods: ['estoque', 'patrimonio', 'contratos', 'pedidos', 'distribuicao'] }, exigeTxt: 'ao menos um outro módulo ativo', dados: 'nenhum dado próprio' },
+      ];
+      const MAPA = Object.fromEntries(MODS.map(m => [m.id, m]));
+
+      const PRESETS = [
+        { nome: 'SEMTRAS (todos)', ativos: TODOS },
+        { nome: 'Só Estoque', ativos: ['estoque'] },
+        { nome: 'Só Patrimônio', ativos: ['patrimonio'] },
+        { nome: 'Estoque + Pedidos', ativos: ['estoque', 'pedidos'] },
+        { nome: 'Patrimônio + Pedidos + Distribuição', ativos: ['patrimonio', 'pedidos', 'distribuicao'] },
+        { nome: 'Nenhum módulo', ativos: [] },
+      ];
+
+      // Telas do menu, por módulo. Mesmo menu da página de perfis e permissões.
+      const MENU = [
+        ['nucleo', ['Usuários e perfis', 'Setores', 'Produtos', 'Configurações', 'Auditoria']],
+        ['estoque', ['Saldo e movimentações', 'Entrada fora de contrato']],
+        ['patrimonio', ['Bens (patrimônio)']],
+        ['contratos', ['Contratos', 'Recebimentos']],
+        ['pedidos', ['Pedidos', 'Autorizações']],
+        ['distribuicao', ['Separação e entrega', 'Termos']],
+        ['relatorios', ['Relatórios']],
+      ];
+
+      // Telas e fluxos que dependem de mais de um módulo. Cada parte só funciona com o seu módulo ativo.
+      const CRUZADAS = [
+        { titulo: 'Montar um pedido', mod: 'pedidos', nota: 'O catálogo e o pedido filtram o tipo de item conforme os módulos do município.', partes: [
+          { mod: 'estoque', on: 'Aceita itens de consumo e mostra o saldo de cada um', off: 'Itens de consumo não aparecem no catálogo do pedido, e não há saldo para consultar' },
+          { mod: 'patrimonio', on: 'Aceita itens permanentes (bens)', off: 'Itens permanentes não aparecem no catálogo do pedido' },
+        ] },
+        { titulo: 'Conferir um recebimento', mod: 'contratos', nota: 'A conferência publica “item recebido”; cada módulo ativo pega a sua parte.', partes: [
+          { mod: 'estoque', on: 'Itens de consumo entram no saldo', off: 'Itens de consumo ficam fora da conferência' },
+          { mod: 'patrimonio', on: 'Itens permanentes viram unidades tombadas', off: 'Itens permanentes ficam fora da conferência' },
+        ] },
+        { titulo: 'Confirmar uma entrega', mod: 'distribuicao', nota: 'Sempre emite o termo de recebimento. A confirmação publica “entrega confirmada”.', partes: [
+          { mod: 'estoque', on: 'Baixa o saldo dos itens de consumo', off: 'Sem baixa de saldo: não há itens de consumo na entrega' },
+          { mod: 'patrimonio', on: 'Muda a localização do bem e emite o termo de responsabilidade', off: 'Sem mudança de localização nem termo de responsabilidade: não há bens na entrega' },
+        ] },
+        { titulo: 'Dar entrada no estoque', mod: 'estoque', nota: 'A regra “entrada exige contrato” é configuração, não módulo.', partes: [
+          { mod: 'contratos', on: 'Entrada vem do recebimento conferido com nota fiscal', off: 'A regra “entrada exige contrato” não tem como valer: só entrada manual, com justificativa' },
+        ] },
+        { titulo: 'Relatórios disponíveis', mod: 'relatorios', nota: 'A tela mostra só os relatórios dos módulos ativos.', partes: [
+          { mod: 'estoque', on: 'Estoque atual e itens sem saldo', off: 'Sem estoque atual e itens sem saldo' },
+          { mod: 'pedidos', on: 'Produtos mais utilizados e aprovações por gestor', off: 'Sem produtos mais utilizados e aprovações por gestor' },
+          { mod: 'distribuicao', on: 'Consumo por setor', off: 'Sem consumo por setor' },
+          { mod: 'patrimonio', on: 'Bens por setor e localização', off: 'Sem bens por setor e localização' },
+          { mod: 'contratos', on: 'Saldo contratado por contrato', off: 'Sem saldo contratado por contrato' },
+        ] },
+      ];
+
+      const EVENTOS = [
+        { nome: 'item recebido', de: 'contratos', para: ['estoque', 'patrimonio'] },
+        { nome: 'entrega confirmada', de: 'distribuicao', para: ['estoque', 'patrimonio'] },
+      ];
+
+      // Posição dos módulos no diagrama (canto superior esquerdo; caixa de 170 x 60).
+      const POS = {
+        nucleo: [0, 135], estoque: [230, 40], patrimonio: [230, 230],
+        contratos: [470, 40], pedidos: [470, 230], distribuicao: [700, 230], relatorios: [700, 40],
+      };
+      const ARESTAS = [
+        ['nucleo', 'estoque'], ['nucleo', 'patrimonio'],
+        ['estoque', 'contratos'], ['patrimonio', 'contratos'],
+        ['estoque', 'pedidos'], ['patrimonio', 'pedidos'],
+        ['pedidos', 'distribuicao'],
+      ];
+      const LISTA = new Intl.ListFormat('pt-BR', { type: 'conjunction' });
+
+      return {
+        MODS, PRESETS, COR, EVENTOS, MAPA,
+        ativos: ['estoque'],
+        usados: ['estoque'],
+        aviso: null,
+
+        on(id) { return id === 'nucleo' || this.ativos.includes(id); },
+        satisfeita(id, conjunto) {
+          const e = MAPA[id].exige;
+          if (!e) return true;
+          return e.tipo === 'todos' ? e.mods.every(m => conjunto.includes(m)) : e.mods.some(m => conjunto.includes(m));
+        },
+        // Módulos ativos que deixariam de ter o que exigem se `id` saísse.
+        dependentes(id) {
+          const resto = this.ativos.filter(x => x !== id);
+          return MODS.filter(m => resto.includes(m.id) && !this.satisfeita(m.id, resto)).map(m => m.nome);
+        },
+        estado(id) {
+          if (this.on(id)) return 'ativo';
+          return this.satisfeita(id, this.ativos) ? 'desligado' : 'bloqueado';
+        },
+        alternar(id) {
+          const m = MAPA[id];
+          if (m.fixo) { this.aviso = { tipo: 'info', txt: 'O Núcleo é sempre ativo: sem ele não há usuário, perfil nem auditoria.' }; return; }
+          if (this.on(id)) {
+            const quebra = this.dependentes(id);
+            if (quebra.length) {
+              this.aviso = { tipo: 'erro', txt: `Não dá para desativar ${m.nome}: ${LISTA.format(quebra)} ${quebra.length > 1 ? 'dependem' : 'depende'} dele. Desative ${quebra.length > 1 ? 'esses módulos' : 'esse módulo'} antes.` };
+              return;
+            }
+            this.ativos = this.ativos.filter(x => x !== id);
+            this.aviso = { tipo: 'ok', txt: `${m.nome} desativado. Sai do menu, as rotas e a API fecham, mas os dados ficam guardados e a auditoria continua.` };
+          } else {
+            if (!this.satisfeita(id, this.ativos)) {
+              this.aviso = { tipo: 'erro', txt: `Não dá para ativar ${m.nome}: exige ${m.exigeTxt}.` };
+              return;
+            }
+            this.ativos = [...this.ativos, id];
+            if (!this.usados.includes(id)) this.usados = [...this.usados, id];
+            this.aviso = { tipo: 'ok', txt: `${m.nome} ativado.` };
+          }
+        },
+        aplicar(i) {
+          const p = PRESETS[i];
+          this.ativos = [...p.ativos];
+          this.usados = [...new Set([...this.usados, ...p.ativos])];
+          this.aviso = { tipo: 'ok', txt: `Combinação “${p.nome}” aplicada. Todas as combinações dos atalhos respeitam as dependências.` };
+        },
+
+        // ---- menu ----
+        get menu() {
+          return MENU.map(([mod, telas]) => ({ mod, nome: MAPA[mod].nome, cor: COR[MAPA[mod].cor], visivel: this.on(mod), telas }));
+        },
+        get telasVisiveis() { return this.menu.filter(g => g.visivel).reduce((n, g) => n + g.telas.length, 0); },
+        get telasTotal() { return MENU.reduce((n, [, t]) => n + t.length, 0); },
+
+        // ---- telas que cruzam módulos ----
+        get cruzadas() {
+          return CRUZADAS.map(c => {
+            const partes = c.partes.map(p => ({ ...p, ok: this.on(p.mod), txt: this.on(p.mod) ? p.on : p.off }));
+            return { ...c, nome: MAPA[c.mod].nome, cor: COR[MAPA[c.mod].cor], ativa: this.on(c.mod), partes, completa: partes.every(p => p.ok) };
+          });
+        },
+        get eventos() {
+          return EVENTOS.map(e => {
+            const consumidores = e.para.map(m => ({ id: m, nome: MAPA[m].nome, cor: COR[MAPA[m].cor], ativo: this.on(m) }));
+            return { ...e, deNome: MAPA[e.de].nome, deCor: COR[MAPA[e.de].cor], deAtivo: this.on(e.de), consumidores, qtd: consumidores.filter(c => c.ativo).length };
+          });
+        },
+
+        // ---- diagrama ----
+        clicarSvg(ev) {
+          const g = ev.target.closest('[data-mod]');
+          if (g) this.alternar(g.dataset.mod);
+        },
+        get svg() {
+          const W = 170, H = 60;
+          const arestas = ARESTAS.map(([a, b]) => {
+            const x1 = POS[a][0] + W, y1 = POS[a][1] + H / 2, x2 = POS[b][0], y2 = POS[b][1] + H / 2;
+            const viva = this.on(a) && this.on(b);
+            const d = `M${x1} ${y1} C${x1 + 45} ${y1}, ${x2 - 45} ${y2}, ${x2 - 4} ${y2}`;
+            return `<path d="${d}" fill="none" class="${viva ? 'stroke-emerald-500' : 'stroke-slate-300'}" stroke-width="${viva ? 2.5 : 1.5}" ${viva ? '' : 'stroke-dasharray="5 4"'} marker-end="url(#${viva ? 'seta-on' : 'seta-off'})"/>`;
+          }).join('');
+          const nos = MODS.map(m => {
+            const [x, y] = POS[m.id];
+            const est = m.fixo ? 'ativo' : this.estado(m.id);
+            const forma = est === 'ativo'
+              ? `${COR[m.cor].no} stroke-2`
+              : est === 'bloqueado' ? 'fill-white stroke-amber-400 stroke-2' : 'fill-slate-50 stroke-slate-300 stroke-2';
+            const dash = est === 'ativo' ? '' : 'stroke-dasharray="5 4"';
+            const rotulo = m.fixo ? 'sempre ativo' : est === 'ativo' ? 'ativo' : est === 'bloqueado' ? 'bloqueado: falta dependência' : 'desligado';
+            const txt = est === 'ativo' ? 'fill-slate-900' : 'fill-slate-400';
+            const sub = est === 'ativo' ? 'fill-slate-600' : est === 'bloqueado' ? 'fill-amber-700' : 'fill-slate-400';
+            return `<g data-mod="${m.id}" class="${m.fixo ? '' : 'cursor-pointer'}">
+              <rect x="${x}" y="${y}" width="${W}" height="${H}" rx="12" class="${forma}" ${dash}/>
+              <text x="${x + W / 2}" y="${y + 26}" text-anchor="middle" font-size="12.5" font-weight="600" class="${txt}">${m.nome}</text>
+              <text x="${x + W / 2}" y="${y + 44}" text-anchor="middle" font-size="10.5" class="${sub}">${rotulo}</text>
+            </g>`;
+          }).join('');
+          const defs = `<defs>
+            <marker id="seta-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="fill-emerald-500"/></marker>
+            <marker id="seta-off" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="fill-slate-300"/></marker>
+          </defs>`;
+          const nota = `<text x="785" y="125" text-anchor="middle" font-size="10" class="fill-slate-400">lê os módulos ativos</text>`;
+          return defs + arestas + nos + nota;
+        },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="modulos()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 118 0v3" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Arquitetura</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Mapa de módulos e dependências</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        O sistema nasce modular e cada município liga só os módulos de que precisa. Ligue e desligue os módulos abaixo: o sistema impede combinações inválidas, e você vê o que some do menu e como as telas que cruzam módulos se comportam sem uma das pontas. Experimente ligar Distribuição com Pedidos desligado.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-7xl px-4 pb-20 sm:px-6">
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+
+      <!-- ================= MÓDULOS ================= -->
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-lg font-semibold text-slate-900">1 · Módulos do município</h2>
+        <p class="mt-1 text-xs text-slate-500">Atalhos de combinação, ou clique em cada módulo.</p>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <template x-for="(p, i) in PRESETS" :key="p.nome">
+            <button type="button" @click="aplicar(i)" class="rounded-full px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50" x-text="p.nome"></button>
+          </template>
+        </div>
+
+        <div class="mt-4 space-y-2">
+          <template x-for="m in MODS" :key="m.id">
+            <button type="button" @click="alternar(m.id)" class="flex w-full items-start gap-3 rounded-xl border p-3 text-left transition"
+                    :class="estado(m.id) === 'ativo' ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' : estado(m.id) === 'bloqueado' ? 'border-dashed border-amber-300 bg-white hover:bg-amber-50/40' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'"
+                    :aria-pressed="on(m.id)">
+              <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded border"
+                    :class="estado(m.id) === 'ativo' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300 bg-white'">
+                <svg x-show="estado(m.id) === 'ativo' && !m.fixo" class="h-3 w-3 fill-none stroke-white stroke-[3]"><use href="#i-check"/></svg>
+                <svg x-show="m.fixo" class="h-3 w-3 fill-none stroke-white stroke-2"><use href="#i-lock"/></svg>
+                <svg x-show="estado(m.id) === 'bloqueado'" class="h-3 w-3 fill-none stroke-amber-500 stroke-2"><use href="#i-lock"/></svg>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-center gap-2">
+                  <span class="h-2 w-2 rounded-full" :class="COR[m.cor].dot"></span>
+                  <span class="text-sm font-semibold" x-text="m.nome"></span>
+                  <span x-show="m.fixo" class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">sempre ativo</span>
+                  <span x-show="estado(m.id) === 'bloqueado'" class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800" x-text="'exige ' + m.exigeTxt"></span>
+                </span>
+                <span class="mt-0.5 block text-xs text-slate-600" x-text="m.faz"></span>
+                <span x-show="!m.fixo" class="mt-1 block text-xs text-slate-500">
+                  <span x-show="estado(m.id) !== 'bloqueado'">Exige: <span x-text="m.exigeTxt"></span>.</span>
+                  <span x-show="!on(m.id) && usados.includes(m.id)" class="font-medium text-slate-600"> Dados preservados: <span x-text="m.dados"></span>.</span>
+                </span>
+              </span>
+            </button>
+          </template>
+        </div>
+
+        <div x-show="aviso" class="mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm"
+             :class="aviso && aviso.tipo === 'erro' ? 'border-rose-300 bg-rose-50 text-rose-900' : aviso && aviso.tipo === 'ok' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700'" role="status">
+          <svg x-show="aviso && aviso.tipo === 'erro'" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-rose-600 stroke-[3]"><use href="#i-x"/></svg>
+          <svg x-show="aviso && aviso.tipo === 'ok'" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+          <span x-text="aviso ? aviso.txt : ''"></span>
+        </div>
+      </section>
+
+      <!-- ================= DIAGRAMA ================= -->
+      <section>
+        <h2 class="text-lg font-semibold text-slate-900">2 · Quem depende de quem</h2>
+        <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <svg viewBox="0 0 880 330" class="h-auto w-full select-none" role="img" aria-label="Diagrama de dependências entre os módulos" x-html="svg" @click="clicarSvg($event)"></svg>
+          <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+            <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-6 bg-emerald-500"></span>dependência atendida</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-dashed border-slate-300"></span>seria atendida se os dois lados estivessem ativos</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block h-3 w-4 rounded-sm border-2 border-dashed border-amber-400"></span>bloqueado</span>
+          </div>
+        </div>
+        <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-500">
+          <li>A seta aponta de quem é exigido para quem exige. Contratos e Pedidos precisam de Estoque <em>e/ou</em> Patrimônio: basta um dos dois.</li>
+          <li>Todo módulo depende do Núcleo; a seta só aparece onde o Núcleo é a única exigência.</li>
+          <li>Relatórios não exige um módulo específico, só que exista algum para mostrar.</li>
+          <li>O sistema bloqueia nos dois sentidos: não liga sem o que o módulo exige, e não desliga o que outro módulo ativo ainda exige.</li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+
+      <!-- ================= MENU ================= -->
+      <section>
+        <h2 class="text-lg font-semibold text-slate-900">3 · O que some do menu</h2>
+        <div class="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+            <div>
+              <p class="text-xs text-slate-500">Menu lateral de quem tem todas as permissões</p>
+              <p class="font-medium">Santarém · SEMTRAS</p>
+            </div>
+            <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800" x-text="telasVisiveis + ' de ' + telasTotal + ' telas'"></span>
+          </div>
+          <template x-for="g in menu" :key="g.mod">
+            <div class="border-b border-slate-100 last:border-b-0">
+              <div class="flex items-center gap-2 px-4 pt-3 text-xs font-semibold uppercase tracking-wide" :class="g.visivel ? 'text-slate-600' : 'text-slate-400'">
+                <span class="h-2 w-2 rounded-full" :class="g.visivel ? g.cor.dot : 'bg-slate-300'"></span>
+                <span x-text="g.nome"></span>
+              </div>
+              <ul class="px-4 pb-3 pt-1">
+                <template x-for="t in g.telas" :key="t">
+                  <li class="flex items-center gap-2 py-0.5 text-sm" :class="g.visivel ? 'font-medium text-slate-900' : 'text-slate-400 line-through'">
+                    <svg x-show="g.visivel" class="h-4 w-4 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+                    <svg x-show="!g.visivel" class="h-4 w-4 fill-none stroke-slate-300 stroke-2"><use href="#i-x"/></svg>
+                    <span x-text="t"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+        <p class="mt-3 text-xs text-slate-500">Esconder o menu não basta. O middleware <code class="rounded bg-slate-100 px-1">modulo:&lt;nome&gt;</code> fecha as rotas e a API do módulo desligado, antes mesmo de olhar a permissão. As tabelas continuam existindo, vazias ou cheias, porque o esquema do banco é o mesmo para todos os municípios.</p>
+      </section>
+
+      <!-- ================= TELAS QUE CRUZAM MÓDULOS ================= -->
+      <section>
+        <h2 class="text-lg font-semibold text-slate-900">4 · Telas que cruzam módulos</h2>
+        <p class="mt-1 text-xs text-slate-500">Cada tela precisa funcionar com menos, sem erro. Estas são as que juntam mais de um módulo.</p>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <template x-for="c in cruzadas" :key="c.titulo">
+            <div class="rounded-2xl border bg-white p-4 shadow-sm" :class="c.ativa ? 'border-slate-200' : 'border-slate-200 opacity-60'">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900" x-text="c.titulo"></p>
+                  <span class="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="c.cor.chip" x-text="c.nome"></span>
+                </div>
+                <span x-show="!c.ativa" class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">tela fechada</span>
+                <span x-show="c.ativa && c.completa" class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">completa</span>
+                <span x-show="c.ativa && !c.completa" class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">funciona com menos</span>
+              </div>
+              <p class="mt-2 text-xs text-slate-500" x-text="c.nota"></p>
+              <ul class="mt-2 space-y-1.5">
+                <template x-for="p in c.partes" :key="p.mod">
+                  <li class="flex items-start gap-2 text-sm">
+                    <svg x-show="p.ok" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+                    <svg x-show="!p.ok" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-slate-400 stroke-2"><use href="#i-x"/></svg>
+                    <span class="min-w-0 flex-1" :class="p.ok ? 'text-slate-700' : 'text-slate-500'" x-text="p.txt"></span>
+                    <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="p.ok ? COR[MAPA[p.mod].cor].chip : 'bg-slate-100 text-slate-400'" x-text="MAPA[p.mod].nome"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================= EVENTOS + PRINCÍPIOS ================= -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Como os módulos conversam: eventos de domínio</h2>
+        <p class="mt-1 text-xs text-slate-500">Nenhum módulo lê a tabela de outro. Quem faz algo publica um evento, e quem estiver ativo e interessado reage.</p>
+        <div class="mt-3 space-y-3">
+          <template x-for="e in eventos" :key="e.nome">
+            <div class="rounded-xl border border-slate-200 p-3">
+              <div class="flex flex-wrap items-center gap-2 text-sm">
+                <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="e.deAtivo ? e.deCor.chip : 'bg-slate-100 text-slate-400 line-through'" x-text="e.deNome"></span>
+                <span class="text-slate-400">publica</span>
+                <code class="rounded bg-slate-900 px-2 py-0.5 text-xs font-semibold text-emerald-200" x-text="e.nome"></code>
+                <span class="text-slate-400">para</span>
+                <template x-for="c in e.consumidores" :key="c.id">
+                  <span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="c.ativo ? c.cor.chip : 'bg-slate-100 text-slate-400 line-through'" x-text="c.nome"></span>
+                </template>
+              </div>
+              <p class="mt-2 text-xs text-slate-500">
+                <span x-show="!e.deAtivo">Quem publica está desligado: o evento nunca acontece.</span>
+                <span x-show="e.deAtivo && e.qtd === 0">Ninguém ativo consome: o evento é publicado e descartado, sem erro.</span>
+                <span x-show="e.deAtivo && e.qtd > 0" x-text="e.qtd + (e.qtd > 1 ? ' módulos reagem' : ' módulo reage') + ' agora.'"></span>
+              </p>
+            </div>
+          </template>
+        </div>
+        <p class="mt-3 text-xs text-slate-500">Por isso Estoque e Patrimônio não têm chave estrangeira para Contratos nem Pedidos: o vínculo é guardado como referência, sem constraint (ver <code>04-modelo-de-dados.html</code>).</p>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Regras de implementação</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+          <li><strong>Monólito modular:</strong> um deploy, um módulo por pasta, tabelas próprias.</li>
+          <li><strong>Esquema único:</strong> ativar ou desativar só muda o acesso (menu, rotas e API). Nenhuma tabela é criada ou removida.</li>
+          <li><strong>Desativar esconde, não apaga:</strong> os dados ficam e a auditoria continua valendo.</li>
+          <li><strong>Dependências no código:</strong> cada módulo declara o que exige, e o cadastro de módulos do município valida isso ao ligar e desligar.</li>
+          <li><strong>Regra de negócio é configuração:</strong> “entrada exige contrato” e o número de etapas de autorização são ajustes do município, não módulos.</li>
+          <li><strong>Licenciamento:</strong> o cadastro de módulos por município deixa espaço para vigência e plano, sem implementar cobrança agora.</li>
+        </ul>
+        <h3 class="mt-4 text-xs font-medium text-slate-500">Riscos que esta página ajuda a enxergar</h3>
+        <ol class="mt-1 list-decimal space-y-1 pl-5 text-xs text-slate-600">
+          <li><strong>Granularidade:</strong> seis módulos já geram várias combinações válidas de teste; por isso são só seis.</li>
+          <li><strong>Acoplamento escondido:</strong> leitura direta de tabela de outro módulo quebraria o “desligar sem afetar”.</li>
+          <li><strong>Telas que cruzam módulos:</strong> a seção 4 mostra o comportamento esperado de cada uma.</li>
+          <li><strong>Consumo e permanente no mesmo pedido:</strong> com um módulo só, catálogo e pedido filtram o tipo correspondente.</li>
+        </ol>
+      </section>
+    </div>
+
+    <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Pontos assumidos nesta página, a confirmar</h2>
+      <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
+        <li><strong>Desligar um módulo que outro ainda exige:</strong> a página bloqueia e pede para desligar o outro antes. A análise só diz que o sistema impede <em>ligar</em> sem as dependências. A alternativa é desligar em cascata, com aviso.</li>
+        <li><strong>Relatórios:</strong> a análise diz que depende dos “módulos ativos”. Aqui exige ao menos um outro módulo ligado, e a lista de relatórios por módulo é uma proposta.</li>
+        <li><strong>Entrada de estoque sem Contratos:</strong> a regra “entrada exige contrato” não tem como valer sem o módulo. A página assume que, nesse caso, só existe a entrada manual com justificativa.</li>
+        <li><strong>Quem liga e desliga módulos:</strong> a página de perfis atribui <code class="rounded bg-white px-1 text-xs">config.gerenciar</code> ao Administrador do município. Quando houver venda por módulo, talvez isso passe a ser feito só pela equipe do sistema.</li>
+        <li>A SEMTRAS começa com todos os módulos ligados? O MVP tem relatórios só básicos, então Relatórios pode entrar reduzido.</li>
+      </ol>
+    </section>
+
+    <p class="mt-8 text-xs text-slate-400">Módulos e dependências conforme a seção 6 da análise · municípios, contagens e combinações fictícios · fonte: <code>docs/requisitos/analise-requisitos.md</code>, seção 6. Menu e perfis em <code>docs/fluxos/05-perfis-e-permissoes.html</code>.</p>
+  </div>
+</body>
+</html>
