@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Máquina de estados do pedido — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <script>
+    function maquina() {
+      const OU = new Intl.ListFormat('pt-BR', { type: 'disjunction' });
+      const ETAPAS = ['Setor A', 'Setor B'];
+
+      // Classes completas (e não montadas por interpolação) para o Tailwind enxergar cada uma.
+      // Mesmos nomes e cores de status da página 01-fluxo-do-sistema.html.
+      const ESTADOS = {
+        inicio:     { nome: 'Sem pedido',            chip: 'bg-slate-100 text-slate-500' },
+        rascunho:   { nome: 'Rascunho',              chip: 'bg-slate-100 text-slate-700',     svg: 'fill-slate-100 stroke-slate-400',     x: 70,  y: 110, w: 140 },
+        enviado:    { nome: 'Enviado para aprovação', chip: 'bg-amber-100 text-amber-800',    svg: 'fill-amber-100 stroke-amber-400',     x: 290, y: 110, w: 170 },
+        aprovado:   { nome: 'Aprovado',              chip: 'bg-emerald-100 text-emerald-800', svg: 'fill-emerald-100 stroke-emerald-500', x: 540, y: 110, w: 140 },
+        reprovado:  { nome: 'Reprovado',             chip: 'bg-rose-100 text-rose-800',       svg: 'fill-rose-100 stroke-rose-400',       x: 260, y: 10,  w: 140, final: true },
+        parcial:    { nome: 'Parcialmente atendido', chip: 'bg-sky-100 text-sky-800',         svg: 'fill-sky-100 stroke-sky-400',         x: 725, y: 50,  w: 160 },
+        atendido:   { nome: 'Atendido',              chip: 'bg-emerald-600 text-white',       svg: 'fill-emerald-200 stroke-emerald-600', x: 725, y: 210, w: 160, final: true },
+        cancelado:  { nome: 'Cancelado',             chip: 'bg-slate-200 text-slate-700',     svg: 'fill-slate-200 stroke-slate-500',     x: 305, y: 300, w: 140, final: true },
+      };
+
+      const TR = [
+        { n: 1, id: 'criar', de: ['inicio'], para: 'rascunho', label: 'Criar o pedido', quem: 'Solicitante', perm: 'pedidos.criar', modulo: 'Pedidos e Autorização',
+          efeito: 'Cria o pedido com número do município e registra autor e setor. Os itens entram com a quantidade solicitada.' },
+        { n: 2, id: 'enviar', de: ['rascunho'], para: 'enviado', label: 'Enviar para aprovação', quem: 'Solicitante (ou alguém do setor)', perm: 'pedidos.criar', modulo: 'Pedidos e Autorização',
+          efeito: 'Trava a edição do pedido e abre a etapa 1 da autorização.' },
+        { n: 3, id: 'aprovar_etapa', de: ['enviado'], para: 'enviado', label: 'Aprovar uma etapa (faltam outras)', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
+          efeito: 'Registra quem aprovou, quando e a quantidade aprovada por item. O status não muda: abre a etapa seguinte.' },
+        { n: 4, id: 'aprovar_final', de: ['enviado'], para: 'aprovado', label: 'Aprovar a última etapa', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
+          efeito: 'O pedido fica liberado para a separação e a entrega.' },
+        { n: 5, id: 'reprovar', de: ['enviado'], para: 'reprovado', label: 'Reprovar', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
+          efeito: 'Qualquer etapa pode reprovar, e o pedido termina aqui. Fica registrado quem reprovou e quando.' },
+        { n: 6, id: 'cancelar', de: ['rascunho', 'enviado', 'aprovado'], para: 'cancelado', label: 'Cancelar', quem: 'Solicitante, só o próprio pedido', perm: 'pedidos.cancelar', modulo: 'Pedidos e Autorização',
+          efeito: 'Encerra o pedido. Não mexe no saldo, porque nada foi entregue.' },
+        { n: 7, id: 'entregar_parcial', de: ['aprovado', 'parcial'], para: 'parcial', label: 'Entregar parte dos itens', quem: 'Distribuição', perm: 'entregas.entregar', modulo: 'Distribuição e Termos',
+          efeito: 'Baixa o saldo (Estoque), muda a localização dos bens (Patrimônio) e emite o termo. O que não saiu continua aprovado e pendente.' },
+        { n: 8, id: 'entregar_total', de: ['aprovado', 'parcial'], para: 'atendido', label: 'Entregar o que falta', quem: 'Distribuição', perm: 'entregas.entregar', modulo: 'Distribuição e Termos',
+          efeito: 'Mesma entrega, mas agora nada fica pendente: o pedido termina como Atendido.' },
+      ];
+      const TRM = Object.fromEntries(TR.map(t => [t.id, t]));
+
+      // Ações que o pedido aceita sem mudar de status.
+      const INTERNAS = [
+        { label: 'Editar o pedido', estados: ['rascunho'], quem: 'Solicitante (ou alguém do setor)', perm: 'pedidos.criar', obs: 'Depois do envio o pedido não é alterado.' },
+        { label: 'Separar os itens', estados: ['aprovado', 'parcial'], quem: 'Distribuição', perm: 'entregas.separar', obs: 'A separação prepara a entrega. O PDF não tem status próprio para ela.' },
+      ];
+
+      // Mesma matriz de 05-perfis-e-permissoes.html, só com o que importa para o pedido.
+      const PERFIS = ['Administrador', 'Estoque', 'Solicitante', 'Gestor_autorizador', 'Distribuição'];
+      const DA = {
+        Administrador: [],
+        Estoque: ['pedidos.ver_todos'],
+        Solicitante: ['pedidos.criar', 'pedidos.ver_setor', 'pedidos.cancelar'],
+        Gestor_autorizador: ['pedidos.ver_todos', 'pedidos.autorizar'],
+        Distribuição: ['pedidos.ver_todos', 'entregas.separar', 'entregas.entregar'],
+      };
+      const QUEM = [
+        { nome: 'Solicitante, autor do pedido', ativos: ['Solicitante'], autor: 'eu', etapaDesigna: 'sim' },
+        { nome: 'Gestor de outro setor', ativos: ['Gestor_autorizador'], autor: 'outro', etapaDesigna: 'sim' },
+        { nome: 'Distribuição', ativos: ['Distribuição'], autor: 'outro', etapaDesigna: 'sim' },
+        { nome: 'Solicitante + Gestor, no pedido dele', ativos: ['Solicitante', 'Gestor_autorizador'], autor: 'eu', etapaDesigna: 'sim' },
+        { nome: 'Administrador', ativos: ['Administrador'], autor: 'outro', etapaDesigna: 'sim' },
+      ];
+
+      const novosItens = () => [
+        { id: 'papel', nome: 'Papel A4 (resma)', tipo: 'consumo', sol: 20, apr: 0, dist: 0, saldo: 12 },
+        { id: 'cadeira', nome: 'Cadeira giratória', tipo: 'permanente', sol: 2, apr: 0, dist: 0, saldo: 2 },
+      ];
+
+      // Posição do diagrama. Cada aresta: transição, estado de partida, caminho e posição do número.
+      const ARESTAS = [
+        { t: 'criar', de: 'inicio', d: 'M39 138 L70 138', b: [54, 121] },
+        { t: 'enviar', de: 'rascunho', d: 'M210 138 L290 138', b: [250, 138] },
+        { t: 'aprovar_etapa', de: 'enviado', d: 'M410 110 C410 60, 455 60, 455 110', b: [432, 73] },
+        { t: 'aprovar_final', de: 'enviado', d: 'M460 138 L540 138', b: [500, 138] },
+        { t: 'reprovar', de: 'enviado', d: 'M335 110 L335 66', b: [335, 88] },
+        { t: 'cancelar', de: 'rascunho', d: 'M140 166 C140 260, 335 230, 345 300', b: [239, 242] },
+        { t: 'cancelar', de: 'enviado', d: 'M375 166 L375 300', b: [375, 233] },
+        { t: 'cancelar', de: 'aprovado', d: 'M610 166 C610 260, 415 230, 405 300', b: [511, 242] },
+        { t: 'entregar_parcial', de: 'aprovado', d: 'M680 125 C705 125, 700 78, 725 78', b: [702, 101] },
+        { t: 'entregar_parcial', de: 'parcial', d: 'M765 50 C765 5, 845 5, 845 50', b: [805, 16] },
+        { t: 'entregar_total', de: 'aprovado', d: 'M680 152 C705 152, 700 238, 725 238', b: [702, 195] },
+        { t: 'entregar_total', de: 'parcial', d: 'M805 106 L805 210', b: [805, 158] },
+      ];
+
+      return {
+        ESTADOS, TR, INTERNAS, PERFIS, DA, QUEM, ETAPAS,
+        ativos: ['Solicitante'], autor: 'eu', etapaDesigna: 'sim', distribuicao: true,
+        pedido: { status: 'inicio', etapa: 0, itens: novosItens() },
+        entrega: { papel: 0, cadeira: 0 },
+        historico: [], relogio: 0, aviso: null, sel: null,
+
+        // ---- quem está usando ----
+        alternarPerfil(id) { this.ativos = this.ativos.includes(id) ? this.ativos.filter(p => p !== id) : [...this.ativos, id]; },
+        aplicarQuem(i) { const q = QUEM[i]; this.ativos = [...q.ativos]; this.autor = q.autor; this.etapaDesigna = q.etapaDesigna; },
+        tem(p) { return this.ativos.some(r => DA[r].includes(p)); },
+        get nomeAtivos() { return this.ativos.length ? this.ativos.join(' + ') : 'sem perfil'; },
+
+        // ---- entrega ----
+        max(it) { return Math.max(0, Math.min(it.apr - it.dist, it.saldo)); },
+        qtd(it) { return Number(this.entrega[it.id]) || 0; },
+        resetEntrega() { this.entrega = Object.fromEntries(this.pedido.itens.map(it => [it.id, this.max(it)])); },
+        get totalEntrega() { return this.pedido.itens.reduce((n, it) => n + this.qtd(it), 0); },
+        get entregaValida() { return this.pedido.itens.every(it => Number.isInteger(this.qtd(it)) && this.qtd(it) >= 0 && this.qtd(it) <= this.max(it)); },
+        get completa() { return this.pedido.itens.every(it => it.dist + this.qtd(it) === it.apr); },
+        get podeEntregar() { return ['aprovado', 'parcial'].includes(this.pedido.status); },
+        reabastecer() {
+          this.pedido.itens[0].saldo += 10; this.resetEntrega();
+          this.aviso = { tipo: 'info', txt: 'Entrada de 10 resmas no estoque (demonstração). O saldo do papel subiu para ' + this.pedido.itens[0].saldo + '.' };
+        },
+
+        // ---- verificação de uma transição ----
+        verificar(t) {
+          const s = this.pedido.status, p = this.pedido, v = [];
+          const add = (camada, ok, txt) => v.push({ camada, ok, txt });
+          add('Situação', t.de.includes(s), t.id === 'criar' ? 'Ainda não existe pedido' : 'O pedido está em ' + OU.format(t.de.map(d => ESTADOS[d].nome)));
+          if (t.id.startsWith('entregar')) add('Módulo', this.distribuicao, 'O módulo Distribuição e Termos está ativo no município');
+          add('Permissão', this.tem(t.perm), 'Tem a permissão ' + t.perm);
+          const ultima = p.etapa + 1 === ETAPAS.length;
+          switch (t.id) {
+            case 'enviar': add('Policy', this.autor !== 'outro', 'O pedido é seu ou do seu setor'); break;
+            case 'aprovar_etapa':
+            case 'aprovar_final':
+              add('Policy', this.autor !== 'eu', 'Você não é o solicitante do pedido (segregação de funções)');
+              add('Policy', this.etapaDesigna === 'sim', `A etapa ${p.etapa + 1} (${ETAPAS[Math.min(p.etapa, ETAPAS.length - 1)]}) designa o seu setor ou perfil como aprovador`);
+              add('Regra', t.id === 'aprovar_final' ? ultima : !ultima, t.id === 'aprovar_final' ? 'É a última etapa que falta' : 'Ainda faltam etapas depois desta');
+              break;
+            case 'reprovar':
+              add('Policy', this.autor !== 'eu', 'Você não é o solicitante do pedido (segregação de funções)');
+              add('Policy', this.etapaDesigna === 'sim', `A etapa ${p.etapa + 1} designa o seu setor ou perfil como aprovador`);
+              break;
+            case 'cancelar': add('Policy', this.autor === 'eu', 'O pedido é seu'); break;
+            case 'entregar_parcial':
+            case 'entregar_total':
+              add('Regra', this.totalEntrega > 0, 'A quantidade a entregar é maior que zero');
+              add('Regra', this.entregaValida, 'Nenhum item passa da quantidade aprovada nem do saldo');
+              add('Regra', t.id === 'entregar_total' ? this.completa : !this.completa, t.id === 'entregar_total' ? 'A entrega completa todos os itens aprovados' : 'Sobram itens pendentes depois da entrega');
+              break;
+          }
+          return v;
+        },
+        get linhas() {
+          return TR.map(t => {
+            const v = this.verificar(t);
+            return { t, v, ok: v.every(x => x.ok), aplica: t.de.includes(this.pedido.status), motivo: (v.find(x => !x.ok) || {}).txt };
+          });
+        },
+        get daqui() { return this.linhas.filter(l => l.aplica); },
+        get dali() { return this.linhas.filter(l => !l.aplica); },
+        get final() { return !!ESTADOS[this.pedido.status].final; },
+        nomes(t) { return t.de.map(d => ESTADOS[d].nome).join(', '); },
+
+        // ---- execução ----
+        executar(id) {
+          const l = this.linhas.find(x => x.t.id === id);
+          if (!l || !l.ok) return;
+          const t = l.t, p = this.pedido, de = p.status;
+          if (id === 'criar') { p.status = 'rascunho'; }
+          else if (id === 'enviar') { p.status = 'enviado'; }
+          else if (id === 'aprovar_etapa' || id === 'aprovar_final') {
+            p.itens.forEach(it => { it.apr = it.sol; });
+            p.etapa++;
+            if (id === 'aprovar_final') { p.status = 'aprovado'; this.resetEntrega(); }
+          }
+          else if (id === 'reprovar') { p.status = 'reprovado'; }
+          else if (id === 'cancelar') { p.status = 'cancelado'; }
+          else {
+            p.itens.forEach(it => { const e = this.qtd(it); it.dist += e; it.saldo -= e; });
+            p.status = id === 'entregar_total' ? 'atendido' : 'parcial';
+            this.resetEntrega();
+          }
+          this.relogio += 7;
+          const h = 9 * 60 + this.relogio;
+          this.historico.unshift({
+            n: t.n, quando: `28/10/2026 ${String(Math.floor(h / 60)).padStart(2, '0')}:${String(h % 60).padStart(2, '0')}`,
+            quem: this.nomeAtivos, label: t.label, de: ESTADOS[de].nome, para: ESTADOS[p.status].nome, mudou: de !== p.status,
+          });
+          this.aviso = { tipo: 'ok', txt: de === p.status ? `${t.label}: o status continua ${ESTADOS[p.status].nome}.` : `${ESTADOS[de].nome} passou para ${ESTADOS[p.status].nome}.` };
+        },
+        recomecar() {
+          this.pedido = { status: 'inicio', etapa: 0, itens: novosItens() };
+          this.entrega = { papel: 0, cadeira: 0 };
+          this.historico = []; this.relogio = 0; this.aviso = null;
+        },
+
+        // ---- diagrama ----
+        escolher(id) { this.sel = this.sel === id ? null : id; },
+        get detalhe() { return this.sel ? TRM[this.sel] : null; },
+        clicarSvg(ev) {
+          const g = ev.target.closest('[data-t]');
+          if (g) this.escolher(g.dataset.t);
+        },
+        get svg() {
+          const atual = this.pedido.status, ok = Object.fromEntries(this.linhas.map(l => [l.t.id, l.ok]));
+          const arestas = ARESTAS.map(e => {
+            const aqui = e.de === atual, livre = aqui && ok[e.t], sel = this.sel === e.t;
+            const cls = livre ? 'stroke-emerald-500' : aqui ? 'stroke-amber-400' : 'stroke-slate-300';
+            const seta = livre ? 'seta-ok' : aqui ? 'seta-bloq' : 'seta-off';
+            const larg = (livre ? 2.5 : 1.75) + (sel ? 1 : 0);
+            const dash = aqui && !livre ? 'stroke-dasharray="5 4"' : '';
+            const n = TRM[e.t].n;
+            const fundo = sel ? 'fill-slate-900 stroke-slate-900' : 'fill-white ' + (livre ? 'stroke-emerald-500' : aqui ? 'stroke-amber-400' : 'stroke-slate-300');
+            return `<path d="${e.d}" fill="none" class="${cls}" stroke-width="${larg}" ${dash} marker-end="url(#${seta})"/>
+              <g data-t="${e.t}" class="cursor-pointer"><circle cx="${e.b[0]}" cy="${e.b[1]}" r="10" class="${fundo}" stroke-width="1.5"/>
+              <text x="${e.b[0]}" y="${e.b[1] + 4}" text-anchor="middle" font-size="11" font-weight="700" class="${sel ? 'fill-white' : 'fill-slate-700'} pointer-events-none">${n}</text></g>`;
+          }).join('');
+          const inicio = `<circle cx="30" cy="138" r="9" class="${atual === 'inicio' ? 'fill-slate-900' : 'fill-slate-300'}"/>
+            <text x="30" y="166" text-anchor="middle" font-size="10" class="fill-slate-400">novo pedido</text>`;
+          const nos = Object.entries(ESTADOS).filter(([k]) => k !== 'inicio').map(([k, s]) => {
+            const aqui = k === atual, H = 56;
+            const sub = aqui ? (k === 'enviado' ? `aguardando etapa ${this.pedido.etapa + 1} de ${ETAPAS.length}` : 'estado atual') : s.final ? 'estado final' : '';
+            const anel = aqui ? `<rect x="${s.x - 5}" y="${s.y - 5}" width="${s.w + 10}" height="${H + 10}" rx="16" fill="none" class="stroke-slate-900" stroke-width="2"/>` : '';
+            return `${anel}<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${H}" rx="12" class="${s.svg}" stroke-width="2"/>
+              <text x="${s.x + s.w / 2}" y="${s.y + (sub ? 25 : 33)}" text-anchor="middle" font-size="12.5" font-weight="600" class="fill-slate-900">${s.nome}</text>
+              ${sub ? `<text x="${s.x + s.w / 2}" y="${s.y + 43}" text-anchor="middle" font-size="10.5" class="${aqui ? 'fill-slate-800 font-semibold' : 'fill-slate-500'}">${sub}</text>` : ''}`;
+          }).join('');
+          const marc = (id, cls) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="${cls}"/></marker>`;
+          const defs = `<defs>${marc('seta-ok', 'fill-emerald-500')}${marc('seta-bloq', 'fill-amber-400')}${marc('seta-off', 'fill-slate-300')}</defs>`;
+          return defs + arestas + inicio + nos;
+        },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="maquina()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Pedidos e Autorização</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Máquina de estados do pedido</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        Um pedido tem sete status e só anda por transições previstas. Cada uma exige uma permissão, uma checagem da Policy e, às vezes, que um módulo esteja ligado. Abaixo está o diagrama completo. Escolha quem você é e percorra o pedido: o diagrama mostra em verde o que você pode fazer agora e em âmbar o que está bloqueado, com o motivo.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-7xl px-4 pb-20 sm:px-6">
+
+    <!-- ================= DIAGRAMA ================= -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">1 · Todos os status e transições</h2>
+      <p class="mt-1 text-xs text-slate-500">Cada número é uma transição. Clique num número para ver quem dispara e o que acontece.</p>
+      <div class="mt-3 overflow-x-auto">
+        <svg viewBox="0 0 900 370" class="h-auto w-full min-w-[40rem] select-none" role="img" aria-label="Diagrama dos status do pedido e das transições entre eles" x-html="svg" @click="clicarSvg($event)"></svg>
+      </div>
+      <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+        <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-6 bg-emerald-500"></span>você pode fazer agora</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-dashed border-amber-400"></span>sai do estado atual, mas está bloqueada</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-6 bg-slate-300"></span>não sai do estado atual</span>
+      </div>
+
+      <div class="mt-3 min-h-[4.5rem] rounded-xl bg-slate-50 p-3 text-sm" aria-live="polite">
+        <p x-show="!detalhe" class="text-xs text-slate-500">Nenhuma transição escolhida. Reprovado, Cancelado e Atendido são estados finais: nada sai deles.</p>
+        <div x-show="detalhe">
+          <p class="font-semibold text-slate-900"><span class="mr-2 inline-grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-[11px] text-white" x-text="detalhe && detalhe.n"></span><span x-text="detalhe && detalhe.label"></span></p>
+          <p class="mt-1 text-xs text-slate-600">
+            De <strong x-text="detalhe && nomes(detalhe)"></strong> para <strong x-text="detalhe && ESTADOS[detalhe.para].nome"></strong>.
+            Quem: <span x-text="detalhe && detalhe.quem"></span>, com <code class="rounded bg-white px-1" x-text="detalhe && detalhe.perm"></code>.
+            Módulo: <span x-text="detalhe && detalhe.modulo"></span>.
+          </p>
+          <p class="mt-1 text-xs text-slate-600" x-text="detalhe && detalhe.efeito"></p>
+        </div>
+      </div>
+    </section>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+
+      <!-- ================= QUEM + PEDIDO ================= -->
+      <div class="space-y-6">
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 class="text-lg font-semibold text-slate-900">2 · Quem está usando</h2>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <template x-for="(q, i) in QUEM" :key="q.nome">
+              <button type="button" @click="aplicarQuem(i)" class="rounded-full px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50" x-text="q.nome"></button>
+            </template>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <template x-for="p in PERFIS" :key="p">
+              <button type="button" @click="alternarPerfil(p)" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition"
+                      :class="ativos.includes(p) ? 'bg-emerald-600 text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'" :aria-pressed="ativos.includes(p)" x-text="p"></button>
+            </template>
+          </div>
+          <div class="mt-3 grid gap-3 sm:grid-cols-2">
+            <label class="block text-xs font-medium text-slate-500">O pedido foi feito por
+              <select x-model="autor" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <option value="eu" :selected="autor === 'eu'">O próprio usuário</option>
+                <option value="colega" :selected="autor === 'colega'">Um colega do mesmo setor</option>
+                <option value="outro" :selected="autor === 'outro'">Alguém de outro setor</option>
+              </select>
+            </label>
+            <label class="block text-xs font-medium text-slate-500">A etapa atual designa o seu setor ou perfil?
+              <select x-model="etapaDesigna" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <option value="sim" :selected="etapaDesigna === 'sim'">Sim</option>
+                <option value="nao" :selected="etapaDesigna === 'nao'">Não</option>
+              </select>
+            </label>
+          </div>
+          <label class="mt-3 flex items-start gap-2 text-sm">
+            <input type="checkbox" x-model="distribuicao" class="mt-0.5 h-4 w-4 accent-emerald-600">
+            <span>Módulo <strong>Distribuição e Termos</strong> ativo no município <span class="block text-xs text-slate-500">Desligado, o pedido aprovado fica parado em Aprovado: não há quem entregue. Veja <code>06-mapa-de-modulos.html</code>.</span></span>
+          </label>
+          <p class="mt-3 text-xs text-slate-500">Para percorrer o pedido inteiro, troque de perfil a cada passo: o que o Solicitante faz, o Gestor não faz, e vice-versa.</p>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-lg font-semibold text-slate-900">3 · O pedido</h2>
+            <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="ESTADOS[pedido.status].chip" x-text="ESTADOS[pedido.status].nome"></span>
+          </div>
+
+          <p x-show="pedido.status === 'inicio'" class="mt-3 text-sm text-slate-600">Ainda não existe pedido. Use a transição 1 ao lado para criar um.</p>
+
+          <div x-show="pedido.status !== 'inicio'">
+            <p class="mt-1 text-xs text-slate-500">Pedido 2026/000087 · Setor de Atendimento · dados fictícios</p>
+            <div class="mt-3 overflow-x-auto">
+              <table class="w-full min-w-[26rem] text-left text-sm">
+                <thead class="text-xs font-medium text-slate-500">
+                  <tr><th class="py-1.5 pr-3">Item</th><th class="px-2 text-right">Solic.</th><th class="px-2 text-right">Aprov.</th><th class="px-2 text-right">Distrib.</th><th class="px-2 text-right">Saldo</th><th x-show="podeEntregar &amp;&amp; distribuicao" class="pl-2 text-right">A entregar</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  <template x-for="it in pedido.itens" :key="it.id">
+                    <tr>
+                      <td class="py-1.5 pr-3">
+                        <span x-text="it.nome"></span>
+                        <span class="ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="it.tipo === 'consumo' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'" x-text="it.tipo"></span>
+                      </td>
+                      <td class="px-2 text-right tabular-nums" x-text="it.sol"></td>
+                      <td class="px-2 text-right tabular-nums" x-text="pedido.etapa ? it.apr : '—'"></td>
+                      <td class="px-2 text-right tabular-nums" x-text="it.dist"></td>
+                      <td class="px-2 text-right tabular-nums" x-text="it.saldo"></td>
+                      <td x-show="podeEntregar &amp;&amp; distribuicao" class="pl-2 text-right">
+                        <input type="number" min="0" x-model.number="entrega[it.id]" class="w-16 rounded-lg border px-2 py-1 text-right text-sm tabular-nums"
+                               :class="Number.isInteger(qtd(it)) &amp;&amp; qtd(it) >= 0 &amp;&amp; qtd(it) <= max(it) ? 'border-slate-300' : 'border-rose-400 bg-rose-50'" :aria-label="'Quantidade a entregar de ' + it.nome">
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <ul class="mt-3 space-y-1 text-xs text-slate-600">
+              <template x-for="(e, i) in ETAPAS" :key="e">
+                <li class="flex items-center gap-2">
+                  <span class="rounded-full px-2 py-0.5 font-semibold" :class="pedido.status === 'rascunho' ? 'bg-slate-100 text-slate-500' : pedido.etapa > i ? 'bg-emerald-100 text-emerald-800' : (pedido.status === 'enviado' &amp;&amp; pedido.etapa === i) ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'"
+                        x-text="pedido.status === 'rascunho' ? 'pendente' : pedido.etapa > i ? 'aprovada' : (pedido.status === 'enviado' &amp;&amp; pedido.etapa === i) ? 'aguardando' : pedido.status === 'reprovado' ? 'não chegou' : 'pendente'"></span>
+                  <span x-text="'Etapa ' + (i + 1) + ' · ' + e"></span>
+                </li>
+              </template>
+            </ul>
+            <p class="mt-2 text-xs text-slate-500">A SEMTRAS configura duas etapas; a regra de como elas se combinam ainda está em aberto. A quantidade aprovada nesta demonstração é sempre igual à solicitada.</p>
+
+            <div x-show="podeEntregar &amp;&amp; distribuicao" class="mt-3 flex flex-wrap items-center gap-3">
+              <button type="button" @click="reabastecer()" class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Dar entrada de 10 resmas no estoque</button>
+              <span class="text-xs text-slate-500">Digite mais que o saldo ou que o aprovado e a entrega é recusada.</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ================= O QUE DÁ PARA FAZER ================= -->
+      <section>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold text-slate-900">4 · O que dá para fazer agora</h2>
+          <button type="button" @click="recomecar()" class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-white">Recomeçar demo</button>
+        </div>
+
+        <div x-show="aviso" class="mt-3 flex items-start gap-2 rounded-xl border p-3 text-sm"
+             :class="aviso &amp;&amp; aviso.tipo === 'ok' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'" role="status">
+          <svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+          <span x-text="aviso ? aviso.txt : ''"></span>
+        </div>
+
+        <div x-show="final" class="mt-3 rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-700">
+          <strong x-text="ESTADOS[pedido.status].nome"></strong> é um estado final: nenhuma transição sai dele. Para um novo pedido, use “Recomeçar demo”.
+        </div>
+
+        <div class="mt-3 space-y-3">
+          <template x-for="l in daqui" :key="l.t.id">
+            <div class="rounded-2xl border bg-white p-4 shadow-sm" :class="l.ok ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-slate-900">
+                    <button type="button" @click="escolher(l.t.id)" class="mr-1.5 inline-grid h-5 w-5 place-items-center rounded-full text-[11px] text-white" :class="sel === l.t.id ? 'bg-slate-900' : 'bg-slate-500'" x-text="l.t.n" :aria-label="'Destacar a transição ' + l.t.n + ' no diagrama'"></button><span x-text="l.t.label"></span>
+                  </p>
+                  <p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                    <span class="rounded-full px-2 py-0.5 font-semibold" :class="ESTADOS[pedido.status].chip" x-text="ESTADOS[pedido.status].nome"></span>
+                    <span>passa para</span>
+                    <span class="rounded-full px-2 py-0.5 font-semibold" :class="ESTADOS[l.t.para].chip" x-text="ESTADOS[l.t.para].nome"></span>
+                  </p>
+                </div>
+                <button type="button" @click="executar(l.t.id)" :disabled="!l.ok" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+                        :class="l.ok ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'cursor-not-allowed bg-slate-100 text-slate-400'" x-text="l.ok ? 'Executar' : 'Bloqueada'"></button>
+              </div>
+              <ul class="mt-3 space-y-1.5">
+                <template x-for="v in l.v" :key="v.txt">
+                  <li class="flex items-start gap-2 text-sm">
+                    <svg x-show="v.ok" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+                    <svg x-show="!v.ok" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-rose-600 stroke-[3]"><use href="#i-x"/></svg>
+                    <span class="min-w-0 flex-1" :class="v.ok ? 'text-slate-700' : 'font-medium text-rose-800'" x-text="v.txt"></span>
+                    <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                          :class="{ 'Situação': 'bg-slate-100 text-slate-700', 'Módulo': 'bg-pink-100 text-pink-800', 'Permissão': 'bg-sky-100 text-sky-800', 'Policy': 'bg-violet-100 text-violet-800', 'Regra': 'bg-amber-100 text-amber-800' }[v.camada]" x-text="v.camada"></span>
+                  </li>
+                </template>
+              </ul>
+              <p x-show="!l.ok" class="mt-3 text-sm text-rose-800">O sistema recusa com 403 e registra a tentativa. Primeiro motivo: <span x-text="l.motivo.toLowerCase()"></span>.</p>
+              <p x-show="l.ok" class="mt-3 text-xs text-slate-600" x-text="l.t.efeito"></p>
+            </div>
+          </template>
+        </div>
+
+        <div x-show="dali.length" class="mt-3 rounded-2xl border border-dashed border-slate-300 p-4">
+          <p class="text-xs font-medium text-slate-500">Não saem do estado atual</p>
+          <ul class="mt-2 space-y-1">
+            <template x-for="l in dali" :key="l.t.id">
+              <li class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <button type="button" @click="escolher(l.t.id)" class="inline-grid h-4 w-4 place-items-center rounded-full bg-slate-300 text-[10px] font-bold text-white" x-text="l.t.n" :aria-label="'Destacar a transição ' + l.t.n + ' no diagrama'"></button>
+                <span x-text="l.t.label"></span>
+                <span class="text-slate-400">só em: <span x-text="nomes(l.t)"></span></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================= HISTÓRICO ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">5 · Histórico do pedido</h2>
+      <p class="mt-1 text-xs text-slate-500">Cada transição grava quem fez, quando e de qual status para qual. É a trilha de auditoria do pedido.</p>
+      <p x-show="!historico.length" class="mt-3 text-sm text-slate-500">Nada aconteceu ainda.</p>
+      <div x-show="historico.length" class="mt-3 overflow-x-auto">
+        <table class="w-full min-w-[34rem] text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500"><tr><th class="py-2 pr-3">Quando</th><th class="pr-3">Quem</th><th class="pr-3">O quê</th><th>Status</th></tr></thead>
+          <tbody class="divide-y divide-slate-100">
+            <template x-for="h in historico" :key="h.quando + h.n">
+              <tr>
+                <td class="whitespace-nowrap py-1.5 pr-3 text-xs text-slate-500" x-text="h.quando"></td>
+                <td class="pr-3 text-xs" x-text="h.quem"></td>
+                <td class="pr-3"><span class="mr-1.5 inline-grid h-4 w-4 place-items-center rounded-full bg-slate-500 text-[10px] font-bold text-white" x-text="h.n"></span><span x-text="h.label"></span></td>
+                <td class="text-xs text-slate-600"><span x-text="h.de"></span> <span class="text-slate-300" x-show="h.mudou">→</span><span x-show="!h.mudou">,</span> <strong x-text="h.mudou ? h.para : 'continua'"></strong></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= TABELA ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">6 · Tabela das transições</h2>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full min-w-[52rem] text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500">
+            <tr><th class="py-2 pr-2">#</th><th class="pr-3">Transição</th><th class="pr-3">De</th><th class="pr-3">Para</th><th class="pr-3">Quem</th><th class="pr-3">Permissão</th><th>Módulo</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <template x-for="t in TR" :key="t.id">
+              <tr class="cursor-pointer align-top" :class="sel === t.id ? 'bg-slate-100' : 'hover:bg-slate-50'" @click="escolher(t.id)">
+                <td class="py-2 pr-2"><span class="inline-grid h-5 w-5 place-items-center rounded-full bg-slate-500 text-[11px] font-bold text-white" x-text="t.n"></span></td>
+                <td class="pr-3 font-medium" x-text="t.label"></td>
+                <td class="pr-3"><div class="flex flex-wrap gap-1"><template x-for="d in t.de" :key="d"><span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="ESTADOS[d].chip" x-text="ESTADOS[d].nome"></span></template></div></td>
+                <td class="pr-3"><span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="ESTADOS[t.para].chip" x-text="ESTADOS[t.para].nome"></span></td>
+                <td class="pr-3 text-xs text-slate-600" x-text="t.quem"></td>
+                <td class="pr-3"><code class="text-xs" x-text="t.perm"></code></td>
+                <td class="text-xs text-slate-600" x-text="t.modulo"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="mt-5 text-sm font-semibold text-slate-900">Ações que não mudam o status</h3>
+      <ul class="mt-2 space-y-1.5 text-sm text-slate-700">
+        <template x-for="a in INTERNAS" :key="a.label">
+          <li class="flex flex-wrap items-center gap-2">
+            <span class="font-medium" x-text="a.label"></span>
+            <span class="text-slate-400">em</span>
+            <template x-for="e in a.estados" :key="e"><span class="rounded-full px-2 py-0.5 text-[11px] font-semibold" :class="ESTADOS[e].chip" x-text="ESTADOS[e].nome"></span></template>
+            <code class="text-xs" x-text="a.perm"></code>
+            <span class="text-xs text-slate-500" x-text="a.obs"></span>
+          </li>
+        </template>
+      </ul>
+    </section>
+
+    <!-- ================= REGRAS + CÓDIGO ================= -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Regras da máquina</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+          <li><strong>Um só lugar decide:</strong> o mapa de transições permitidas fica no enum do status. Nenhuma tela nem classe de ação muda o status por conta própria.</li>
+          <li><strong>Parcialmente atendido e Atendido são consequência:</strong> o sistema compara a quantidade distribuída com a aprovada depois de cada entrega. Ninguém escolhe esses status à mão.</li>
+          <li><strong>Enviado cobre todas as etapas:</strong> o número de etapas é configuração do município. Aprovar uma etapa que não é a última não muda o status, só abre a seguinte.</li>
+          <li><strong>Depois do envio o pedido não é editado.</strong> Quem aprova define a quantidade aprovada por item, e a solicitada fica guardada.</li>
+          <li><strong>Segregação de funções:</strong> quem pediu nunca aprova nem reprova o próprio pedido, qualquer que seja o perfil.</li>
+          <li><strong>Cada transição vai para a auditoria,</strong> com autor, data, hora e status antes e depois.</li>
+          <li><strong>Entregar depende de módulos:</strong> sem Distribuição e Termos o pedido para em Aprovado. A baixa do saldo só acontece se Estoque estiver ativo, e a mudança de localização só se Patrimônio estiver.</li>
+        </ul>
+      </section>
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Como fica no código</h2>
+        <pre class="mt-3 max-h-80 overflow-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200">enum StatusPedido: string
+{
+    case Rascunho = 'rascunho';
+    case EnviadoParaAprovacao = 'enviado_para_aprovacao';
+    case Aprovado = 'aprovado';
+    case Reprovado = 'reprovado';
+    case ParcialmenteAtendido = 'parcialmente_atendido';
+    case Atendido = 'atendido';
+    case Cancelado = 'cancelado';
+
+    /** @return list&lt;self&gt; */
+    public function proximos(): array
+    {
+        return match ($this) {
+            self::Rascunho => [self::EnviadoParaAprovacao, self::Cancelado],
+            self::EnviadoParaAprovacao => [self::EnviadoParaAprovacao, self::Aprovado, self::Reprovado, self::Cancelado],
+            self::Aprovado => [self::ParcialmenteAtendido, self::Atendido, self::Cancelado],
+            self::ParcialmenteAtendido => [self::ParcialmenteAtendido, self::Atendido],
+            self::Reprovado, self::Atendido, self::Cancelado => [],
+        };
+    }
+}
+
+// Pedido::transicionar() é o único caminho para mudar o status
+public function transicionar(StatusPedido $para): void
+{
+    throw_unless(in_array($para, $this->status->proximos(), true),
+        TransicaoInvalida::class);
+    $this->update(['status' => $para]);
+}</pre>
+        <p class="mt-3 text-xs text-slate-500">A Policy responde “este usuário pode agora?” e o enum responde “esse caminho existe?”. Os dois têm de concordar. No banco, um <code>CHECK</code> garante que o status é um dos sete valores.</p>
+      </section>
+    </div>
+
+    <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Pontos assumidos nesta página, a confirmar com a SEMTRAS</h2>
+      <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
+        <li><strong>Reprovado é final.</strong> O PDF não diz se o solicitante pode corrigir e reenviar. Aqui ele cria um pedido novo. Se puder reenviar, entra uma transição Reprovado para Rascunho.</li>
+        <li><strong>Pedido parcialmente atendido que nunca se completa.</strong> Sem saldo ou sem interesse, ele fica aberto para sempre, e cancelar não vale depois de uma entrega. Falta uma forma de encerrar com pendência (um status novo ou uma justificativa).</li>
+        <li><strong>A separação não tem status.</strong> O PDF lista sete, e a análise acrescenta a etapa de separação por Compras. Aqui ela é uma ação dentro de Aprovado. Se for preciso enxergar “em separação”, vira um oitavo status.</li>
+        <li><strong>Cancelar um pedido já separado.</strong> A página permite cancelar em Aprovado. Falta decidir o que acontece com os itens separados e se o cancelamento depois da separação precisa de outro perfil.</li>
+        <li><strong>Quem pode cancelar, e até quando:</strong> a página de perfis assume o próprio solicitante, enquanto não houve entrega. Gestor e Distribuição não cancelam.</li>
+        <li><strong>Regra das duas autorizações</strong> (em sequência, qualquer uma basta, ou por tipo de item) e quais são os dois setores: o mapa de estados é o mesmo nos três casos, muda só o que conta como “última etapa”.</li>
+      </ol>
+    </section>
+
+    <p class="mt-8 text-xs text-slate-400">Status do PDF e transições propostas · pedido, setores e horários fictícios · fonte: <code>docs/requisitos/analise-requisitos.md</code>, seções 2 e 4. Permissões em <code>docs/fluxos/05-perfis-e-permissoes.html</code>, módulos em <code>docs/fluxos/06-mapa-de-modulos.html</code> e fluxo completo em <code>docs/fluxos/01-fluxo-do-sistema.html</code>.</p>
+  </div>
+</body>
+</html>
