@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Termos de recebimento e responsabilidade — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    [x-cloak] { display: none !important; }
+    /* O papel usa só tabelas e CSS simples, como as views de PDF do DomPDF (sem flex nem grid). */
+    .papel { font-family: Georgia, 'Times New Roman', serif; font-size: 13px; line-height: 1.45; color: #111; }
+    .papel table { width: 100%; border-collapse: collapse; }
+    .papel th, .papel td { padding: 5px 8px; vertical-align: top; }
+    .papel .grade th, .papel .grade td { border: 1px solid #555; }
+    .papel .grade th { background: #eee; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .papel .rotulo { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #555; }
+    .linha-assinatura { border-bottom: 1px solid #111; height: 34px; }
+    @page { size: A4; margin: 12mm; }
+    @media print {
+      body { background: #fff !important; }
+      .no-print { display: none !important; }
+      .area-papel { padding: 0 !important; }
+      .papel-folha { box-shadow: none !important; border: 0 !important; padding: 0 !important; max-width: none !important; }
+    }
+  </style>
+
+  <script>
+    function termos() {
+      const pad = (n, w) => String(n).padStart(w, '0');
+      return {
+        aba: 'recebimento',
+        cfg: {
+          municipio: 'Prefeitura Municipal de Santarém',
+          secretaria: 'Secretaria Municipal de Assistência Social — SEMTRAS',
+          rodape: 'Endereço, telefone e e-mail configuráveis por município',
+          formato: 'AAAA/NNNNNN',
+        },
+        assinatura: 'impresso',
+        recebedorLogin: true,
+        parcial: false,
+        recebedor: { nome: 'João Silva', matricula: '12345', setor: 'CRAS Centro' },
+        itens: [
+          { id: 'papel', nome: 'Papel A4 75 g/m² (resma 500 fls)', tipo: 'consumo', un: 'resma', apr: 25, ent: 25, sel: true },
+          { id: 'nb', nome: 'Notebook 14" 8 GB', tipo: 'permanente', un: 'un', apr: 2, ent: 2, sel: true, tombos: ['2026.0101', '2026.0102'] },
+        ],
+
+        // ---- numeração ----
+        num(n) {
+          const a = '2026';
+          if (this.cfg.formato === 'NNNNNN/AAAA') return `${pad(n, 6)}/${a}`;
+          if (this.cfg.formato === 'AAAA-NNNN') return `${a}-${pad(n, 4)}`;
+          return `${a}/${pad(n, 6)}`;
+        },
+
+        // ---- dados derivados ----
+        get selecionados() { return this.itens.filter(i => i.sel); },
+        get bens() {
+          return this.selecionados.filter(i => i.tipo === 'permanente').flatMap(i => i.tombos.slice(0, i.ent).map(t => ({ tombo: t, desc: i.nome })));
+        },
+        get pendentes() { return this.selecionados.filter(i => i.ent < i.apr); },
+        get statusPedido() {
+          if (!this.selecionados.length) return '—';
+          return this.pendentes.length ? 'Parcialmente atendido' : 'Atendido';
+        },
+        get modo() {
+          if (this.assinatura === 'eletronica' && !this.recebedorLogin) return 'bloqueado';
+          return this.assinatura;
+        },
+        setParcial(v) {
+          this.parcial = v;
+          this.itens[0].ent = v ? 15 : 25;
+        },
+        imprimir() { window.print(); },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-100 font-sans text-slate-800 antialiased" x-data="termos()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="no-print bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Distribuição e Termos</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Termo de recebimento e termo de responsabilidade</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        Os dois documentos que o sistema emite na entrega, no formato em que sairiam em PDF. Mexa nas opções ao lado e veja o papel mudar, inclusive as três formas de assinatura que ainda estão em discussão.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 grid max-w-7xl gap-6 px-4 pb-20 sm:px-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+
+    <!-- ================= CONTROLES ================= -->
+    <aside class="no-print space-y-4 lg:sticky lg:top-4 lg:self-start">
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Documento</h2>
+        <div class="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 text-sm">
+          <button type="button" @click="aba = 'recebimento'" class="rounded-lg px-2 py-1.5 font-medium transition" :class="aba === 'recebimento' ? 'bg-white shadow-sm' : 'text-slate-500'">Recebimento</button>
+          <button type="button" @click="aba = 'responsabilidade'" class="rounded-lg px-2 py-1.5 font-medium transition" :class="aba === 'responsabilidade' ? 'bg-white shadow-sm' : 'text-slate-500'">Responsabilidade</button>
+        </div>
+        <button type="button" @click="imprimir()" class="mt-3 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">Imprimir ou salvar em PDF</button>
+        <p class="mt-2 text-xs text-slate-500">No sistema real, o PDF vem do DomPDF. Aqui o navegador faz o papel dele.</p>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Assinatura de quem recebe</h2>
+        <p class="mt-1 text-xs text-slate-500">Ponto em aberto com a SEMTRAS. O MVP começa com o PDF impresso.</p>
+        <div class="mt-3 space-y-2 text-sm">
+          <label class="flex cursor-pointer items-start gap-2 rounded-lg p-2 ring-1" :class="assinatura === 'impresso' ? 'bg-emerald-50 ring-emerald-500' : 'ring-slate-200'">
+            <input type="radio" value="impresso" x-model="assinatura" class="mt-1 accent-emerald-600"><span><strong class="font-medium">Impresso</strong><span class="block text-xs text-slate-500">Assina no papel e o arquivo fica com o setor.</span></span>
+          </label>
+          <label class="flex cursor-pointer items-start gap-2 rounded-lg p-2 ring-1" :class="assinatura === 'escaneado' ? 'bg-emerald-50 ring-emerald-500' : 'ring-slate-200'">
+            <input type="radio" value="escaneado" x-model="assinatura" class="mt-1 accent-emerald-600"><span><strong class="font-medium">Impresso + escaneado</strong><span class="block text-xs text-slate-500">Assina no papel e o escaneado é anexado ao pedido.</span></span>
+          </label>
+          <label class="flex cursor-pointer items-start gap-2 rounded-lg p-2 ring-1" :class="assinatura === 'eletronica' ? 'bg-emerald-50 ring-emerald-500' : 'ring-slate-200'">
+            <input type="radio" value="eletronica" x-model="assinatura" class="mt-1 accent-emerald-600"><span><strong class="font-medium">Eletrônica</strong><span class="block text-xs text-slate-500">Quem recebe confirma no sistema, com o próprio login.</span></span>
+          </label>
+        </div>
+        <label class="mt-3 flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" x-model="recebedorLogin" class="h-4 w-4 accent-emerald-600"> Quem recebe tem login no sistema
+        </label>
+        <p x-show="modo === 'bloqueado'" x-transition class="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>
+          Sem login não há como assinar eletronicamente. O documento volta para o modelo impresso. Se isso acontece com frequência, a assinatura eletrônica não pode ser o único caminho.
+        </p>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Entrega</h2>
+        <ul class="mt-3 space-y-1.5 text-sm">
+          <template x-for="it in itens" :key="it.id">
+            <li><label class="flex items-center gap-2"><input type="checkbox" x-model="it.sel" class="h-4 w-4 accent-emerald-600"> <span x-text="it.nome"></span></label></li>
+          </template>
+        </ul>
+        <label class="mt-3 flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" :checked="parcial" @change="setParcial($event.target.checked)" class="h-4 w-4 accent-emerald-600"> Entrega parcial do papel (15 de 25)
+        </label>
+        <div class="mt-3 grid gap-2 text-xs font-medium text-slate-500">
+          <label>Quem recebe <input type="text" x-model="recebedor.nome" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-normal text-slate-800"></label>
+          <div class="grid grid-cols-2 gap-2">
+            <label>Matrícula <input type="text" x-model="recebedor.matricula" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-normal text-slate-800"></label>
+            <label>Setor <input type="text" x-model="recebedor.setor" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-normal text-slate-800"></label>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Configuração do município</h2>
+        <p class="mt-1 text-xs text-slate-500">Vem do cadastro do tenant, não do código.</p>
+        <div class="mt-3 grid gap-2 text-xs font-medium text-slate-500">
+          <label>Município <input type="text" x-model="cfg.municipio" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-normal text-slate-800"></label>
+          <label>Secretaria <input type="text" x-model="cfg.secretaria" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-normal text-slate-800"></label>
+          <label>Numeração
+            <select x-model="cfg.formato" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal text-slate-800">
+              <option>AAAA/NNNNNN</option><option>NNNNNN/AAAA</option><option>AAAA-NNNN</option>
+            </select>
+          </label>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ================= PAPEL ================= -->
+    <main class="area-papel min-w-0">
+      <div class="papel-folha papel mx-auto max-w-[210mm] rounded-sm border border-slate-300 bg-white p-8 shadow-lg sm:p-12">
+
+        <!-- cabeçalho -->
+        <table>
+          <tr>
+            <td style="width:70px">
+              <div style="width:60px;height:60px;border:1px dashed #888;text-align:center;font-size:9px;color:#888;padding-top:20px">LOGO</div>
+            </td>
+            <td style="text-align:center">
+              <div style="font-weight:bold;font-size:15px;text-transform:uppercase" x-text="cfg.municipio"></div>
+              <div style="font-size:12px" x-text="cfg.secretaria"></div>
+            </td>
+            <td style="width:70px"></td>
+          </tr>
+        </table>
+        <hr style="border:0;border-top:2px solid #111;margin:10px 0 14px">
+
+        <!-- ========== TERMO DE RECEBIMENTO ========== -->
+        <div x-show="aba === 'recebimento'">
+          <div style="text-align:center;font-weight:bold;font-size:16px">TERMO DE RECEBIMENTO Nº <span x-text="num(45)"></span></div>
+
+          <table style="margin-top:14px">
+            <tr>
+              <td style="width:50%"><div class="rotulo">Pedido</div><span x-text="num(87)"></span> · <span x-text="statusPedido"></span></td>
+              <td><div class="rotulo">Data e hora da entrega</div>28/10/2026 10:15</td>
+            </tr>
+            <tr>
+              <td><div class="rotulo">Solicitante</div>João Silva</td>
+              <td><div class="rotulo">Setor solicitante</div><span x-text="recebedor.setor"></span></td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <div class="rotulo">Autorizações</div>
+                Etapa 1 · Autorizador(a) do Setor A · 27/10/2026 09:20<br>
+                Etapa 2 · Autorizador(a) do Setor B · 27/10/2026 15:02
+              </td>
+            </tr>
+          </table>
+
+          <div class="rotulo" style="margin-top:14px">Relação dos itens entregues</div>
+          <table class="grade" style="margin-top:4px">
+            <thead><tr><th>Item</th><th>Tipo</th><th style="text-align:right">Aprovada</th><th style="text-align:right">Entregue</th><th>Identificação</th></tr></thead>
+            <tbody>
+              <tr x-show="!selecionados.length"><td colspan="5" style="text-align:center;color:#777">Nenhum item selecionado.</td></tr>
+              <template x-for="it in selecionados" :key="it.id">
+                <tr>
+                  <td x-text="it.nome"></td>
+                  <td x-text="it.tipo"></td>
+                  <td style="text-align:right" x-text="it.apr + ' ' + it.un"></td>
+                  <td style="text-align:right;font-weight:bold" x-text="it.ent + ' ' + it.un"></td>
+                  <td style="font-family:monospace;font-size:11px" x-text="it.tipo === 'permanente' ? it.tombos.slice(0, it.ent).join(', ') : '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <p x-show="pendentes.length" style="margin-top:8px;font-size:12px">
+            <strong>Entrega parcial.</strong> Itens pendentes para uma próxima entrega:
+            <template x-for="(it, i) in pendentes" :key="it.id"><span><span x-text="(it.apr - it.ent) + ' ' + it.un + ' de ' + it.nome.split(' (')[0]"></span><span x-show="i < pendentes.length - 1">; </span></span></template>.
+          </p>
+          <p x-show="bens.length" style="margin-top:8px;font-size:12px">Os bens permanentes acima são objeto do <strong>Termo de Responsabilidade Nº <span x-text="num(18)"></span></strong>, emitido junto com este termo.</p>
+
+          <p style="margin-top:14px">Declaro ter recebido os itens relacionados neste termo, conferidos quanto à quantidade e à identificação.</p>
+
+          <!-- assinatura: impresso ou escaneado (ou retorno do bloqueado) -->
+          <div x-show="modo !== 'eletronica'" style="margin-top:18px">
+            <table>
+              <tr>
+                <td style="width:50%;padding-right:20px"><div class="linha-assinatura"></div><div class="rotulo" style="margin-top:3px">Recebido por</div><span x-text="recebedor.nome"></span> · matrícula <span x-text="recebedor.matricula"></span><br><span style="font-size:11px;color:#555">Data e hora: ____/____/______ ____:____</span></td>
+                <td style="padding-left:20px"><div class="linha-assinatura"></div><div class="rotulo" style="margin-top:3px">Entregue por (Compras)</div>Maria Souza</td>
+              </tr>
+            </table>
+            <div x-show="modo === 'escaneado'" style="margin-top:12px;border:1px dashed #666;padding:8px;font-size:11px">
+              <strong>Via assinada:</strong> anexar o arquivo escaneado ao pedido no sistema. O pedido só é dado como concluído depois do anexo.<br>
+              Anexado em: ____/____/______ por: ______________________
+            </div>
+          </div>
+
+          <!-- assinatura eletrônica -->
+          <div x-show="modo === 'eletronica'" style="margin-top:18px;border:1px solid #111;padding:10px;font-size:12px">
+            <div class="rotulo">Assinatura eletrônica</div>
+            Assinado eletronicamente por <strong x-text="recebedor.nome"></strong> (matrícula <span x-text="recebedor.matricula"></span>) em 28/10/2026 10:15:42, autenticado com login e senha pessoais.<br>
+            Código de verificação: <span style="font-family:monospace">8F3A-91C2-47D0</span> · IP 10.0.0.15<br>
+            Entregue por: Maria Souza (Compras).
+          </div>
+        </div>
+
+        <!-- ========== TERMO DE RESPONSABILIDADE ========== -->
+        <div x-show="aba === 'responsabilidade'">
+          <div style="text-align:center;font-weight:bold;font-size:16px">TERMO DE RESPONSABILIDADE DE BENS PERMANENTES Nº <span x-text="num(18)"></span></div>
+
+          <div x-show="!bens.length" style="margin-top:20px;border:1px dashed #888;padding:16px;text-align:center;color:#555">
+            Este pedido não tem bens permanentes entregues, então o sistema <strong>não emite</strong> o termo de responsabilidade. Marque o notebook na coluna ao lado para ver o documento.
+          </div>
+
+          <div x-show="bens.length">
+            <table style="margin-top:14px">
+              <tr>
+                <td style="width:50%"><div class="rotulo">Responsável</div><span x-text="recebedor.nome"></span> · matrícula <span x-text="recebedor.matricula"></span></td>
+                <td><div class="rotulo">Setor de destino</div><span x-text="recebedor.setor"></span></td>
+              </tr>
+              <tr>
+                <td><div class="rotulo">Termo de recebimento</div><span x-text="num(45)"></span> · pedido <span x-text="num(87)"></span></td>
+                <td><div class="rotulo">Data e hora</div>28/10/2026 10:15</td>
+              </tr>
+            </table>
+
+            <div class="rotulo" style="margin-top:14px">Bens sob responsabilidade</div>
+            <table class="grade" style="margin-top:4px">
+              <thead><tr><th>Tombo</th><th>Descrição</th><th>Localização</th><th>Responsável</th></tr></thead>
+              <tbody>
+                <template x-for="b in bens" :key="b.tombo">
+                  <tr>
+                    <td style="font-family:monospace" x-text="b.tombo"></td>
+                    <td x-text="b.desc"></td>
+                    <td x-text="recebedor.setor"></td>
+                    <td x-text="recebedor.nome"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <p style="margin-top:14px;font-size:12px">
+              O responsável declara receber os bens acima relacionados, comprometendo-se a zelar por sua guarda e conservação e a comunicar ao setor de patrimônio qualquer dano, extravio ou necessidade de mudança de local. A transferência de um bem para outro setor ou pessoa só vale depois de registrada no sistema.
+            </p>
+            <p style="margin-top:4px;font-size:10px;color:#777">Texto ilustrativo. O texto oficial deve ser validado pelo jurídico do município.</p>
+
+            <div x-show="modo !== 'eletronica'" style="margin-top:18px">
+              <table>
+                <tr>
+                  <td style="width:50%;padding-right:20px"><div class="linha-assinatura"></div><div class="rotulo" style="margin-top:3px">Responsável pelos bens</div><span x-text="recebedor.nome"></span> · matrícula <span x-text="recebedor.matricula"></span></td>
+                  <td style="padding-left:20px"><div class="linha-assinatura"></div><div class="rotulo" style="margin-top:3px">Setor de patrimônio</div>Maria Souza (Compras)</td>
+                </tr>
+              </table>
+              <div x-show="modo === 'escaneado'" style="margin-top:12px;border:1px dashed #666;padding:8px;font-size:11px"><strong>Via assinada:</strong> anexar o arquivo escaneado ao registro dos bens no sistema.</div>
+            </div>
+            <div x-show="modo === 'eletronica'" style="margin-top:18px;border:1px solid #111;padding:10px;font-size:12px">
+              <div class="rotulo">Assinatura eletrônica</div>
+              Assinado eletronicamente por <strong x-text="recebedor.nome"></strong> (matrícula <span x-text="recebedor.matricula"></span>) em 28/10/2026 10:15:42.<br>
+              Código de verificação: <span style="font-family:monospace">5C12-0BE8-A9F4</span> · IP 10.0.0.15
+            </div>
+          </div>
+        </div>
+
+        <!-- rodapé -->
+        <hr style="border:0;border-top:1px solid #999;margin:22px 0 6px">
+        <table style="font-size:10px;color:#666">
+          <tr>
+            <td x-text="cfg.rodape"></td>
+            <td style="text-align:right">Gerado pelo sistema em 28/10/2026 10:15 por Maria Souza · Compras</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- notas -->
+      <div class="no-print mx-auto mt-6 grid max-w-[210mm] gap-4 sm:grid-cols-2">
+        <section class="rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Em aberto com a SEMTRAS</h2>
+          <ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-amber-900/90">
+            <li>Impresso com upload do escaneado, assinatura eletrônica ou os dois?</li>
+            <li>Quem recebe é sempre um servidor com login? Se não, a assinatura eletrônica não cobre todos os casos.</li>
+            <li>O texto do termo de responsabilidade já existe em algum modelo oficial do município?</li>
+          </ul>
+        </section>
+        <section class="rounded-2xl border border-slate-200 bg-white p-5">
+          <h2 class="text-sm font-semibold text-slate-900">Notas de implementação</h2>
+          <ul class="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-600">
+            <li>O PDF usa uma view Blade própria, com tabelas e CSS simples. O DomPDF não suporta flex nem grid.</li>
+            <li>Cabeçalho, logo, rodapé e numeração vêm da configuração do município.</li>
+            <li>O termo de responsabilidade só é emitido quando há bem permanente na entrega.</li>
+            <li>Entrega parcial gera o termo só do que saiu e deixa o restante pendente.</li>
+          </ul>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

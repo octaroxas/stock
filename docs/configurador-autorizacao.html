@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configurador de autorização — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <script>
+    function configurador() {
+      let uid = 0;
+      const E = (titulo, escopo, regra, aprovadores) => ({
+        id: ++uid, titulo, escopo, regra,
+        aprovadores: aprovadores.map(([tipo, nome]) => ({ tipo, nome, solic: false })),
+      });
+      const PRESETS = {
+        sequencia: {
+          nome: 'Duas etapas em sequência',
+          desc: 'O Setor A autoriza e só depois o Setor B. É o desenho que a análise de requisitos assume como ponto de partida.',
+          make: () => [E('Etapa 1', 'todos', 'qualquer', [['Setor', 'Setor A']]), E('Etapa 2', 'todos', 'qualquer', [['Setor', 'Setor B']])],
+        },
+        qualquer: {
+          nome: 'Qualquer um dos dois basta',
+          desc: 'Uma única etapa. A autorização de um dos setores já libera o pedido.',
+          make: () => [E('Autorização', 'todos', 'qualquer', [['Setor', 'Setor A'], ['Setor', 'Setor B']])],
+        },
+        ambos: {
+          nome: 'Os dois precisam autorizar',
+          desc: 'Uma única etapa, sem ordem entre os setores, mas só termina quando ambos aprovam.',
+          make: () => [E('Autorização', 'todos', 'todos', [['Setor', 'Setor A'], ['Setor', 'Setor B']])],
+        },
+        tipo: {
+          nome: 'Por tipo de item',
+          desc: 'O Setor A cuida dos itens de consumo e o Setor B, dos permanentes. Cada item passa só pela etapa do seu tipo.',
+          make: () => [E('Consumo', 'consumo', 'qualquer', [['Setor', 'Setor A']]), E('Permanente', 'permanente', 'qualquer', [['Setor', 'Setor B']])],
+        },
+      };
+      const norm = es => JSON.stringify(es.map(e => [e.titulo, e.escopo, e.regra, e.aprovadores.map(a => [a.tipo, a.nome, a.solic])]));
+      const ESCOPO = { todos: 'todos os itens', consumo: 'os itens de consumo', permanente: 'os itens permanentes' };
+
+      return {
+        presets: PRESETS,
+        etapas: PRESETS.sequencia.make(),
+        itens: [
+          { id: 'papel', nome: 'Papel A4 · 30 resmas', tipo: 'consumo', sel: true },
+          { id: 'nb', nome: 'Notebook 14" · 2 un', tipo: 'permanente', sel: true },
+        ],
+        votos: {}, aviso: '', copiado: false,
+
+        init() {
+          this.$watch('chave', () => { this.votos = {}; this.aviso = ''; });
+        },
+
+        // ---- edição ----
+        aplicar(k) { this.etapas = PRESETS[k].make(); },
+        get presetAtual() {
+          const n = norm(this.etapas);
+          return Object.keys(PRESETS).find(k => norm(PRESETS[k].make()) === n) || null;
+        },
+        addEtapa() { this.etapas.push(E('Etapa ' + (this.etapas.length + 1), 'todos', 'qualquer', [['Setor', 'Setor ' + String.fromCharCode(65 + this.etapas.length)]])); },
+        delEtapa(i) { this.etapas.splice(i, 1); },
+        mover(i, d) {
+          const j = i + d;
+          if (j < 0 || j >= this.etapas.length) return;
+          [this.etapas[i], this.etapas[j]] = [this.etapas[j], this.etapas[i]];
+        },
+        addAprov(i) { this.etapas[i].aprovadores.push({ tipo: 'Setor', nome: 'Novo aprovador', solic: false }); },
+        delAprov(i, k) { this.etapas[i].aprovadores.splice(k, 1); },
+        get chave() { return JSON.stringify([this.etapas, this.itens.map(i => i.sel)]); },
+
+        // ---- validações da configuração ----
+        get alertas() {
+          const L = [];
+          if (!this.etapas.length) L.push('Nenhuma etapa: os pedidos não passariam por autorização.');
+          ['consumo', 'permanente'].forEach(t => {
+            if (this.etapas.length && !this.etapas.some(e => e.escopo === 'todos' || e.escopo === t))
+              L.push(`Nenhuma etapa autoriza itens ${t === 'consumo' ? 'de consumo' : 'permanentes'}: eles seriam aprovados sem autorização.`);
+          });
+          this.etapas.forEach(e => {
+            if (!e.aprovadores.length) L.push(`“${e.titulo}” não tem aprovadores e nunca termina.`);
+            if (e.regra === 'todos' && e.aprovadores.some(a => a.solic))
+              L.push(`“${e.titulo}” exige todos os aprovadores, mas um deles é o próprio solicitante e não pode aprovar. A etapa trava.`);
+          });
+          return L;
+        },
+        get resumo() {
+          const L = this.etapas.map((e, i) => {
+            const quem = e.aprovadores.map(a => (a.tipo === 'Perfil' ? 'perfil ' : '') + a.nome).join(', ') || '—';
+            const acao = e.aprovadores.length > 1
+              ? (e.regra === 'todos' ? `todos precisam aprovar (${quem})` : `qualquer um pode aprovar (${quem})`)
+              : `${quem} aprova`;
+            return `${i + 1}. ${e.titulo}: ${acao}, cobrindo ${ESCOPO[e.escopo]}.`;
+          });
+          if (this.etapas.length > 1) L.push('As etapas acontecem em ordem: a seguinte só começa quando a anterior termina.');
+          return L;
+        },
+        get json() {
+          return JSON.stringify({
+            autorizacao: {
+              etapas: this.etapas.map((e, i) => ({
+                ordem: i + 1, titulo: e.titulo, escopo: e.escopo, regra: e.regra === 'todos' ? 'todos' : 'qualquer',
+                aprovadores: e.aprovadores.map(a => ({ tipo: a.tipo.toLowerCase(), nome: a.nome })),
+              })),
+            },
+          }, null, 2);
+        },
+        async copiar() {
+          try { await navigator.clipboard.writeText(this.json); this.copiado = true; setTimeout(() => { this.copiado = false; }, 2000); } catch (e) { /* sem permissão de área de transferência */ }
+        },
+
+        // ---- simulação do pedido ----
+        get itensAtivos() { return this.itens.filter(i => i.sel); },
+        voto(e, k) { return this.votos[`${e.id}-${k}`] || null; },
+        votar(e, k, v) {
+          if (e.aprovadores[k].solic) {
+            this.aviso = `Bloqueado: ${e.aprovadores[k].nome} é o solicitante deste pedido e não pode autorizá-lo (segregação de funções).`;
+            return;
+          }
+          this.aviso = '';
+          this.votos[`${e.id}-${k}`] = v;
+        },
+        get fluxo() {
+          const vivos = new Set(this.itensAtivos.map(i => i.id));
+          const etapas = [];
+          let atual = -1;
+          this.etapas.forEach((e, idx) => {
+            const alvo = this.itensAtivos.filter(i => vivos.has(i.id) && (e.escopo === 'todos' || e.escopo === i.tipo));
+            if (!alvo.length) { etapas.push({ st: 'nao', alvo }); return; }
+            const votos = e.aprovadores.map((_, k) => this.voto(e, k));
+            if (votos.includes('no')) { alvo.forEach(i => vivos.delete(i.id)); etapas.push({ st: 'rejeitada', alvo }); return; }
+            const oks = votos.filter(v => v === 'ok').length;
+            const feita = e.aprovadores.length > 0 && (e.regra === 'todos' ? oks === e.aprovadores.length : oks >= 1);
+            if (feita) { etapas.push({ st: 'concluida', alvo }); return; }
+            if (atual < 0) { atual = idx; etapas.push({ st: 'atual', alvo }); } else etapas.push({ st: 'aguardando', alvo });
+          });
+          const itens = this.itensAtivos.map(i => {
+            if (!vivos.has(i.id)) return { ...i, st: 'Reprovado', cls: 'bg-rose-100 text-rose-800' };
+            const espera = etapas.some((s, idx) => ['atual', 'aguardando'].includes(s.st) && s.alvo.some(a => a.id === i.id));
+            return espera ? { ...i, st: 'Pendente', cls: 'bg-amber-100 text-amber-800' } : { ...i, st: 'Aprovado', cls: 'bg-emerald-100 text-emerald-800' };
+          });
+          let status;
+          if (!itens.length) status = { label: 'Selecione ao menos um item', cls: 'bg-slate-100 text-slate-500' };
+          else if (atual >= 0) status = { label: `Em autorização · ${this.etapas[atual].titulo}`, cls: 'bg-amber-100 text-amber-800' };
+          else if (!vivos.size) status = { label: 'Reprovado', cls: 'bg-rose-100 text-rose-800' };
+          else if (vivos.size < itens.length) status = { label: 'Aprovado (parcial)', cls: 'bg-emerald-100 text-emerald-800' };
+          else status = { label: 'Aprovado', cls: 'bg-emerald-600 text-white' };
+          return { etapas, itens, status };
+        },
+        stInfo(st) {
+          return {
+            atual: { label: 'Em andamento', cls: 'bg-amber-100 text-amber-800' },
+            aguardando: { label: 'Aguardando a anterior', cls: 'bg-slate-100 text-slate-500' },
+            concluida: { label: 'Concluída', cls: 'bg-emerald-100 text-emerald-800' },
+            rejeitada: { label: 'Reprovada', cls: 'bg-rose-100 text-rose-800' },
+            nao: { label: 'Não se aplica a este pedido', cls: 'bg-slate-100 text-slate-400' },
+          }[st];
+        },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="configurador()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Pedidos e Autorização</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Configurador do fluxo de autorização</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        Cada município define como seus pedidos são autorizados: quantas etapas, quem aprova cada uma, se basta um aprovador ou se todos precisam aprovar, e se a etapa vale só para consumo ou só para permanente. Monte o fluxo à esquerda e veja um pedido passando por ele à direita. A regra da SEMTRAS ainda não está definida, então esta página serve para apresentá-la às opções e anotar a escolha.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-7xl px-4 pb-20 sm:px-6">
+
+    <!-- modelos prontos -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold text-slate-900">Comece por um modelo</h2>
+      <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <template x-for="(p, k) in presets" :key="k">
+          <button type="button" @click="aplicar(k)" class="rounded-xl border p-4 text-left transition"
+                  :class="presetAtual === k ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'">
+            <span class="flex items-center justify-between gap-2">
+              <span class="text-sm font-semibold" x-text="p.nome"></span>
+              <svg x-show="presetAtual === k" class="h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>
+            </span>
+            <span class="mt-1 block text-xs text-slate-600" x-text="p.desc"></span>
+          </button>
+        </template>
+      </div>
+      <p class="mt-3 text-xs text-slate-500" x-show="!presetAtual">Configuração personalizada: ela já não corresponde a nenhum dos modelos.</p>
+    </section>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+
+      <!-- ================= CONFIGURAÇÃO ================= -->
+      <section>
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-900">1 · Etapas do município</h2>
+          <button type="button" @click="addEtapa()" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">+ Etapa</button>
+        </div>
+
+        <p x-show="!etapas.length" class="mt-3 rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma etapa. Adicione uma ou escolha um modelo.</p>
+
+        <div class="mt-3 space-y-3">
+          <template x-for="(e, i) in etapas" :key="e.id">
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div class="flex items-center gap-2">
+                <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-emerald-600 text-xs font-semibold text-white" x-text="i + 1"></span>
+                <input type="text" x-model="e.titulo" class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium" aria-label="Nome da etapa">
+                <button type="button" @click="mover(i, -1)" :disabled="i === 0" class="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30" title="Subir">↑</button>
+                <button type="button" @click="mover(i, 1)" :disabled="i === etapas.length - 1" class="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30" title="Descer">↓</button>
+                <button type="button" @click="delEtapa(i)" class="rounded px-2 py-1 text-sm text-rose-600 hover:bg-rose-50" title="Remover etapa">✕</button>
+              </div>
+
+              <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                <label class="text-xs font-medium text-slate-500">Vale para
+                  <select x-model="e.escopo" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                    <option value="todos">Todos os itens</option>
+                    <option value="consumo">Só itens de consumo</option>
+                    <option value="permanente">Só itens permanentes</option>
+                  </select>
+                </label>
+                <label class="text-xs font-medium text-slate-500">Quando há mais de um aprovador
+                  <select x-model="e.regra" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                    <option value="qualquer">Qualquer um basta</option>
+                    <option value="todos">Todos precisam aprovar</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="mt-3">
+                <p class="text-xs font-medium text-slate-500">Quem aprova</p>
+                <div class="mt-1 space-y-2">
+                  <template x-for="(a, k) in e.aprovadores" :key="k">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <select x-model="a.tipo" class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800" aria-label="Setor ou perfil">
+                        <option>Setor</option><option>Perfil</option>
+                      </select>
+                      <input type="text" x-model="a.nome" class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" aria-label="Nome do setor ou perfil">
+                      <label class="flex items-center gap-1 text-xs text-slate-500" title="Teste da segregação de funções: este aprovador é o próprio solicitante do pedido">
+                        <input type="checkbox" x-model="a.solic" class="h-3.5 w-3.5 accent-rose-600"> é o solicitante
+                      </label>
+                      <button type="button" @click="delAprov(i, k)" class="rounded px-1.5 text-sm text-rose-600 hover:bg-rose-50" title="Remover aprovador">✕</button>
+                    </div>
+                  </template>
+                </div>
+                <button type="button" @click="addAprov(i)" class="mt-2 text-xs font-medium text-emerald-700 hover:underline">+ aprovador</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- alertas da configuração -->
+        <div x-show="alertas.length" class="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <h3 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Atenção na configuração</h3>
+          <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900/90">
+            <template x-for="a in alertas" :key="a"><li x-text="a"></li></template>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================= SIMULAÇÃO ================= -->
+      <section>
+        <h2 class="text-lg font-semibold text-slate-900">2 · Simulação</h2>
+        <div class="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+            <div>
+              <p class="text-xs text-slate-500">Pedido 2026/000087</p>
+              <p class="font-medium">CRAS Centro · João Silva</p>
+            </div>
+            <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="fluxo.status.cls" x-text="fluxo.status.label"></span>
+          </div>
+
+          <div class="border-b border-slate-100 px-4 py-3">
+            <p class="text-xs font-medium text-slate-500">Itens do pedido</p>
+            <ul class="mt-2 space-y-1.5">
+              <template x-for="it in itens" :key="it.id">
+                <li class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="it.sel" class="h-4 w-4 accent-emerald-600">
+                    <span x-text="it.nome"></span>
+                    <span class="rounded px-1.5 py-0.5 text-xs font-medium" :class="it.tipo === 'consumo' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'" x-text="it.tipo"></span>
+                  </label>
+                  <template x-for="r in fluxo.itens.filter(x => x.id === it.id)" :key="r.id">
+                    <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="r.cls" x-text="r.st"></span>
+                  </template>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <div class="space-y-3 p-4">
+            <p x-show="!etapas.length" class="text-sm text-slate-500">Sem etapas configuradas, não há nada a simular.</p>
+            <template x-for="(e, i) in etapas" :key="e.id">
+              <div class="rounded-xl border p-3" :class="fluxo.etapas[i] && fluxo.etapas[i].st === 'atual' ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <p class="text-sm font-semibold"><span class="text-slate-400" x-text="(i + 1) + '.'"></span> <span x-text="e.titulo"></span></p>
+                  <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="fluxo.etapas[i] && stInfo(fluxo.etapas[i].st).cls" x-text="fluxo.etapas[i] && stInfo(fluxo.etapas[i].st).label"></span>
+                </div>
+                <ul class="mt-2 space-y-1.5" x-show="fluxo.etapas[i] && fluxo.etapas[i].st !== 'nao'">
+                  <template x-for="(a, k) in e.aprovadores" :key="k">
+                    <li class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <span><span class="text-xs text-slate-400" x-text="a.tipo.toLowerCase()"></span> <span x-text="a.nome"></span><span x-show="a.solic" class="ml-1 text-xs text-rose-600">(solicitante)</span></span>
+                      <span class="flex items-center gap-1.5">
+                        <span x-show="voto(e, k) === 'ok'" class="text-xs font-semibold text-emerald-700">✓ aprovou</span>
+                        <span x-show="voto(e, k) === 'no'" class="text-xs font-semibold text-rose-700">✕ reprovou</span>
+                        <template x-if="fluxo.etapas[i] && fluxo.etapas[i].st === 'atual' && !voto(e, k)">
+                          <span class="flex gap-1.5">
+                            <button type="button" @click="votar(e, k, 'ok')" class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700">Aprovar</button>
+                            <button type="button" @click="votar(e, k, 'no')" class="rounded-lg bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100">Reprovar</button>
+                          </span>
+                        </template>
+                      </span>
+                    </li>
+                  </template>
+                </ul>
+                <p class="mt-2 text-xs text-slate-500" x-show="fluxo.etapas[i] && fluxo.etapas[i].st !== 'nao' && e.aprovadores.length > 1" x-text="e.regra === 'todos' ? 'Todos precisam aprovar.' : 'A primeira decisão encerra a etapa.'"></p>
+              </div>
+            </template>
+            <p x-show="aviso" x-transition class="flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
+              <svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-rose-600 stroke-2"><use href="#i-alert"/></svg><span x-text="aviso"></span>
+            </p>
+            <button type="button" @click="votos = {}; aviso = ''" class="text-xs font-medium text-slate-500 hover:text-slate-800">Recomeçar simulação</button>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-500">Uma reprovação reprova os itens que a etapa cobre. Se sobrar algum item, o pedido segue como “Aprovado (parcial)”, como no PDF original.</p>
+      </section>
+    </div>
+
+    <!-- ================= RESUMO E EXPORTAÇÃO ================= -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Resumo em linguagem simples</h2>
+        <p class="mt-1 text-xs text-slate-500">Para ler em voz alta na reunião e confirmar se é isto que o município quer.</p>
+        <ul class="mt-3 space-y-2 text-sm text-slate-700">
+          <li x-show="!resumo.length" class="text-slate-400">Sem etapas.</li>
+          <template x-for="l in resumo" :key="l"><li x-text="l"></li></template>
+        </ul>
+      </section>
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-slate-900">Como ficaria salvo no município</h2>
+          <button type="button" @click="copiar()" class="rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50" x-text="copiado ? 'Copiado' : 'Copiar JSON'"></button>
+        </div>
+        <p class="mt-1 text-xs text-slate-500">Ilustração da configuração por tenant. O formato real será definido na modelagem de dados.</p>
+        <pre class="mt-3 max-h-72 overflow-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200" x-text="json"></pre>
+      </section>
+    </div>
+
+    <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Perguntas para levar à SEMTRAS</h2>
+      <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
+        <li>Quais são os dois setores responsáveis por autorizar?</li>
+        <li>Um autoriza depois do outro, ou qualquer um dos dois já libera o pedido?</li>
+        <li>Há mais de uma pessoa por setor? Se sim, basta uma ou todas precisam aprovar?</li>
+        <li>Itens de consumo e permanentes passam pelo mesmo caminho, ou cada tipo tem o seu setor?</li>
+        <li>O autorizador pode reduzir a quantidade de um item (aprovação parcial)? Quem decide o que fazer com o restante?</li>
+      </ol>
+    </section>
+
+    <p class="mt-8 text-xs text-slate-400">Setores, nomes e pedido fictícios · fonte: <code>docs/analise-requisitos.md</code>, seções 6 e 8. Fluxo completo em <code>docs/fluxo-do-sistema.html</code>.</p>
+  </div>
+</body>
+</html>

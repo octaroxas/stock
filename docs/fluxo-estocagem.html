@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fluxo de estocagem — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    [x-cloak] { display: none !important; }
+    .step .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity .6s ease, transform .6s ease;
+      transition-delay: calc(var(--d, 0) * 90ms);
+    }
+    .step.in .reveal { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .step .reveal { opacity: 1; transform: none; transition: none; }
+    }
+  </style>
+
+  <script>
+    function estoque() {
+      const USER = 'Maria Souza · Compras';
+      const SETORES = { 'Almoxarifado': 'Compras', 'CRAS Centro': 'João Silva', 'CREAS': 'Paula Lima', 'Gabinete': 'Rui Costa' };
+
+      const estadoInicial = () => ({
+        seq: 0,
+        nf4521: false,
+        livro: [],
+        bens: [],
+        audit: [{ t: '20/10/2026 08:52', u: USER, acao: 'Cadastrou o contrato Ata 018/2026', det: '3 itens: papel A4 (500), caneta (600), notebook (10)' }],
+        prods: [
+          { id: 'papel',  nome: 'Papel A4 75 g/m²',          tipo: 'consumo',    un: 'resma', porCaixa: 1,  min: 100, contratado: 500, rec: 0 },
+          { id: 'caneta', nome: 'Caneta esferográfica azul', tipo: 'consumo',    un: 'un',    porCaixa: 12, min: 120, contratado: 600, rec: 0 },
+          { id: 'nb',     nome: 'Notebook 14" 8 GB',         tipo: 'permanente', un: 'un',    porCaixa: 1,  min: 0,   contratado: 10,  rec: 0 },
+        ],
+      });
+
+      return {
+        // navegação por rolagem
+        active: 0, progress: 0, seen: [], open: false,
+        nav: [
+          { n: 1, label: 'Contrato' }, { n: 2, label: 'Recebimento' }, { n: 3, label: 'Saldo' },
+          { n: 4, label: 'Patrimônio' }, { n: 5, label: 'Alertas' }, { n: 6, label: 'Exceções' },
+        ],
+        setores: Object.keys(SETORES),
+
+        // formulários
+        f: { item: 'caneta', unid: 'caixa', qtd: 5, nf: '4530' },
+        s: { item: 'papel', qtd: 110 },
+        x: { item: 'papel', qtd: 20, origem: 'Doação', just: '' },
+        permExcecao: true,
+        selBem: null, destino: 'CRAS Centro', motivo: 'Inservível',
+        msg: { rec: null, saida: null, exc: null, pat: null },
+
+        ...estadoInicial(),
+
+        init() {
+          this.$nextTick(() => this.onScroll());
+          window.addEventListener('resize', () => this.onScroll());
+        },
+
+        onScroll() {
+          const h = window.innerHeight;
+          let a = 0;
+          document.querySelectorAll('[data-step]').forEach(sec => {
+            const n = +sec.dataset.step;
+            const top = sec.getBoundingClientRect().top;
+            if (top < h * 0.8 && !this.seen.includes(n)) {
+              this.seen.push(n);
+              if (n === 2) setTimeout(() => this.conferirNF(), 1400);
+            }
+            if (top < h * 0.4) a = n;
+          });
+          const max = document.documentElement.scrollHeight - h;
+          this.progress = max > 0 ? Math.min(100, window.scrollY / max * 100) : 0;
+          if (this.progress > 99.5) a = this.nav.length;
+          this.active = a;
+        },
+
+        // ---- utilidades ----
+        prod(id) { return this.prods.find(p => p.id === id); },
+        hora() {
+          const m = 9 * 60 + this.seq++ * 4;
+          return `28/10/2026 ${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+        },
+        log(t, acao, det) { this.audit.push({ t, u: USER, acao, det }); },
+        say(k, ok, text) { this.msg[k] = { ok, text }; },
+        reiniciar() {
+          Object.assign(this, estadoInicial());
+          this.selBem = null;
+          this.msg = { rec: null, saida: null, exc: null, pat: null };
+        },
+
+        // ---- saldos ----
+        saldo(id) {
+          return this.livro.filter(m => m.id === id).reduce((s, m) => s + (m.tipo === 'Entrada' ? m.qtd : -m.qtd), 0);
+        },
+        aReceber(p) { return p.contratado - p.rec; },
+        get livroCalc() {
+          const acc = {};
+          return this.livro.map(m => {
+            acc[m.id] = (acc[m.id] || 0) + (m.tipo === 'Entrada' ? m.qtd : -m.qtd);
+            return { ...m, saldoApos: acc[m.id] };
+          }).reverse();
+        },
+        situacao(p) {
+          if (!this.livro.some(m => m.id === p.id)) return { k: 'sem-mov', label: 'Sem movimentação', cls: 'bg-slate-100 text-slate-500' };
+          const sd = this.saldo(p.id);
+          if (sd <= 0) return { k: 'zero', label: 'Sem saldo', cls: 'bg-rose-600 text-white' };
+          if (sd <= p.min) return { k: 'baixo', label: 'Abaixo do mínimo', cls: 'bg-rose-100 text-rose-700' };
+          return { k: 'ok', label: 'Dentro do mínimo', cls: 'bg-emerald-100 text-emerald-800' };
+        },
+        get consumo() { return this.prods.filter(p => p.tipo === 'consumo'); },
+        get reposicao() { return this.consumo.filter(p => ['zero', 'baixo'].includes(this.situacao(p).k)); },
+        get bensAtivos() { return this.bens.filter(b => !b.baixado); },
+        get porLocal() {
+          const c = {};
+          this.bensAtivos.forEach(b => { c[b.local] = (c[b.local] || 0) + 1; });
+          return Object.entries(c);
+        },
+        get bemSel() { return this.bens.find(b => b.tombo === this.selBem) || this.bens[0] || null; },
+        get movRecentes() { return this.livroCalc.slice(0, 5); },
+
+        // ---- recebimento ----
+        registrar(id, qtd, nf, t) {
+          const p = this.prod(id);
+          p.rec += qtd;
+          if (p.tipo === 'consumo') {
+            this.livro.push({ t, tipo: 'Entrada', origem: 'Compra (contrato)', id, qtd, user: USER, ref: `NF ${nf} · Ata 018/2026` });
+            this.log(t, 'Entrada no estoque (consumo)', `${p.nome}: +${qtd} ${p.un}`);
+          } else {
+            const novos = [];
+            for (let i = 0; i < qtd; i++) {
+              const tombo = `2026.${String(101 + this.bens.length).padStart(4, '0')}`;
+              this.bens.push({ tombo, desc: p.nome, local: 'Almoxarifado', resp: 'Compras', baixado: false, hist: [{ t, txt: `Tombado · recebido na NF ${nf} · Almoxarifado` }] });
+              novos.push(tombo);
+            }
+            this.log(t, 'Tombou bens permanentes', `${p.nome}: ${novos[0]}${qtd > 1 ? ' a ' + novos[qtd - 1] : ''}`);
+          }
+        },
+        conferirNF() {
+          if (this.nf4521) return;
+          const t = this.hora();
+          this.log(t, 'Conferiu o recebimento (NF 4521)', 'Papel A4: 200 · Notebook: 4');
+          this.registrar('papel', 200, '4521', t);
+          this.registrar('nb', 4, '4521', t);
+          this.nf4521 = true;
+        },
+        ajustaUnid() { if (this.prod(this.f.item).porCaixa === 1 && this.f.unid === 'caixa') this.f.unid = 'base'; },
+        qtdBase() {
+          const p = this.prod(this.f.item), q = parseInt(this.f.qtd) || 0;
+          return q * (this.f.unid === 'caixa' ? p.porCaixa : 1);
+        },
+        previsao() {
+          const p = this.prod(this.f.item), q = parseInt(this.f.qtd) || 0;
+          return this.f.unid === 'caixa' ? `${q} caixa(s) × ${p.porCaixa} = ${q * p.porCaixa} ${p.un} (é isto que será registrado)` : `${q} ${p.un}`;
+        },
+        receber() {
+          const p = this.prod(this.f.item), base = this.qtdBase(), falta = this.aReceber(p);
+          if (base <= 0) return this.say('rec', false, 'A quantidade deve ser maior que zero.');
+          if (!this.f.nf.trim()) return this.say('rec', false, 'Informe o número da nota fiscal.');
+          if (base > falta) return this.say('rec', false, `Bloqueado: ${base} ${p.un} é mais do que o saldo a receber do contrato (${falta}).`);
+          const t = this.hora();
+          this.log(t, `Conferiu o recebimento (NF ${this.f.nf})`, `${p.nome}: ${base} ${p.un}`);
+          this.registrar(p.id, base, this.f.nf, t);
+          this.say('rec', true, `Recebimento registrado: +${base} ${p.un}. Saldo a receber no contrato: ${this.aReceber(p)}.`);
+        },
+
+        // ---- saída (simulada) e exceção ----
+        saida() {
+          const p = this.prod(this.s.item), q = parseInt(this.s.qtd) || 0, sd = this.saldo(p.id);
+          if (q <= 0) return this.say('saida', false, 'A quantidade deve ser maior que zero.');
+          if (q > sd) return this.say('saida', false, `Bloqueado: saída de ${q} acima do saldo (${sd}). O saldo nunca fica negativo.`);
+          const t = this.hora();
+          this.livro.push({ t, tipo: 'Saída', origem: 'Saída por pedido', id: p.id, qtd: q, user: USER, ref: 'Pedido 2026/000087 (simulado)' });
+          this.log(t, 'Saída do estoque (simulada)', `${p.nome}: −${q} ${p.un}`);
+          this.say('saida', true, `Saída registrada: −${q} ${p.un}. Novo saldo: ${this.saldo(p.id)}.`);
+        },
+        excecao() {
+          const p = this.prod(this.x.item), q = parseInt(this.x.qtd) || 0, j = this.x.just.trim();
+          if (!this.permExcecao) return this.say('exc', false, 'Bloqueado: seu perfil não tem a permissão específica de entrada excepcional.');
+          if (q <= 0) return this.say('exc', false, 'A quantidade deve ser maior que zero.');
+          if (j.length < 10) return this.say('exc', false, 'Justificativa obrigatória (mínimo de 10 caracteres).');
+          const t = this.hora();
+          this.livro.push({ t, tipo: 'Entrada', origem: this.x.origem + ' (fora de contrato)', id: p.id, qtd: q, user: USER, ref: 'Justificativa: ' + j });
+          this.log(t, `Entrada fora de contrato · ${this.x.origem}`, `${p.nome}: +${q} ${p.un} · “${j}”`);
+          this.say('exc', true, `Entrada excepcional registrada: +${q} ${p.un}. Novo saldo: ${this.saldo(p.id)}.`);
+          this.x.just = '';
+        },
+
+        // ---- patrimônio ----
+        transferir() {
+          const b = this.bemSel;
+          if (!b) return this.say('pat', false, 'Nenhum bem tombado ainda. Confira o recebimento na etapa 2.');
+          if (b.baixado) return this.say('pat', false, 'Este bem já foi baixado.');
+          if (b.local === this.destino) return this.say('pat', false, `O bem já está em ${this.destino}.`);
+          const t = this.hora(), devolucao = this.destino === 'Almoxarifado';
+          b.hist.push({ t, txt: `${devolucao ? 'Devolução' : 'Transferência'}: ${b.local} → ${this.destino} · resp. ${SETORES[this.destino]}` });
+          this.log(t, devolucao ? 'Devolveu bem ao almoxarifado' : 'Transferiu bem', `${b.tombo}: ${b.local} → ${this.destino}`);
+          b.local = this.destino; b.resp = SETORES[this.destino];
+          this.say('pat', true, `${b.tombo} agora está em ${b.local}, sob responsabilidade de ${b.resp}.`);
+        },
+        baixar() {
+          const b = this.bemSel;
+          if (!b) return this.say('pat', false, 'Nenhum bem tombado ainda. Confira o recebimento na etapa 2.');
+          if (b.baixado) return this.say('pat', false, 'Este bem já foi baixado.');
+          const t = this.hora();
+          b.hist.push({ t, txt: `Baixa patrimonial · motivo: ${this.motivo}` });
+          this.log(t, 'Deu baixa em bem', `${b.tombo} · motivo: ${this.motivo}`);
+          b.baixado = true;
+          this.say('pat', true, `${b.tombo} baixado. O histórico continua consultável.`);
+        },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased pb-24 lg:pb-0"
+      x-data="estoque()" x-cloak @scroll.window.passive="onScroll()">
+
+  <!-- ícones -->
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 118 0v3"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <!-- cabeçalho fixo -->
+  <header class="fixed inset-x-0 top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3 sm:px-6">
+      <a href="#topo" class="shrink-0 text-sm font-semibold text-slate-900">Fluxo de estocagem</a>
+      <nav class="flex min-w-0 flex-1 gap-1 overflow-x-auto text-sm" aria-label="Etapas">
+        <template x-for="s in nav" :key="s.n">
+          <a :href="'#etapa-' + s.n"
+             class="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 transition-colors"
+             :class="active === s.n ? 'bg-emerald-600 text-white' : (active > s.n ? 'text-emerald-700 hover:bg-emerald-50' : 'text-slate-500 hover:bg-slate-100')">
+            <span class="text-xs font-semibold" x-text="s.n"></span>
+            <span x-text="s.label"></span>
+          </a>
+        </template>
+      </nav>
+    </div>
+    <div class="h-0.5 bg-slate-100"><div class="h-full bg-emerald-600 transition-[width] duration-150" :style="`width:${progress}%`"></div></div>
+  </header>
+
+  <!-- ===================== 0 · ABERTURA ===================== -->
+  <section id="topo" data-step="0" class="step in relative overflow-hidden bg-slate-900 px-4 pb-24 pt-32 text-white sm:px-6">
+    <div class="mx-auto max-w-5xl">
+      <p class="reveal text-sm font-medium uppercase tracking-widest text-emerald-400" style="--d:0">SEMTRAS · Santarém · módulos Contratos, Estoque e Patrimônio</p>
+      <h1 class="reveal mt-4 max-w-3xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl" style="--d:1">
+        Como um item entra, é contado e é rastreado dentro do estoque.
+      </h1>
+      <p class="reveal mt-6 max-w-2xl text-lg text-slate-300" style="--d:2">
+        Esta página trata só da estocagem: do contrato de licitação até o saldo e a localização de cada bem. Pedido, autorização e entrega ficam de fora. Aqui a simulação é de verdade: use os formulários e veja o saldo, as movimentações e a auditoria mudarem no painel ao lado.
+      </p>
+
+      <ol class="reveal mt-14 grid gap-3 sm:grid-cols-3 lg:grid-cols-6" style="--d:4">
+        <template x-for="(s, i) in nav" :key="s.n">
+          <li>
+            <a :href="'#etapa-' + s.n" class="block h-full rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-emerald-400/60 hover:bg-white/10">
+              <span class="text-xs font-semibold text-emerald-400" x-text="'Etapa ' + s.n"></span>
+              <span class="mt-1 block font-medium" x-text="s.label"></span>
+              <span class="mt-1 block text-xs text-slate-400"
+                    x-text="['Itens e saldo a receber', 'Conferência com nota fiscal', 'Entradas, saídas e saldo', 'Bem tombado e rastreado', 'Estoque mínimo e relatórios', 'Fora de contrato, auditado'][i]"></span>
+            </a>
+          </li>
+        </template>
+      </ol>
+      <div class="reveal mt-3 flex items-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm" style="--d:5">
+        <svg class="h-4 w-4 shrink-0 fill-none stroke-emerald-300 stroke-2"><use href="#i-bolt"/></svg>
+        <span><strong class="font-semibold text-emerald-300">Auditoria</strong> registra cada passo: quem fez, quando e o que mudou.</span>
+      </div>
+
+      <p class="reveal mt-10 text-sm text-slate-400" style="--d:6">
+        Baseado em <code class="rounded bg-white/10 px-1.5 py-0.5">docs/analise-requisitos.md</code> e no PDF “Projeto Controle de Pedidos”. Nomes, números e datas são fictícios.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===================== ETAPAS + PAINEL ===================== -->
+  <div class="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <main class="min-w-0 divide-y divide-slate-200">
+
+      <!-- ============ 1 · CONTRATO ============ -->
+      <section id="etapa-1" data-step="1" class="step scroll-mt-20 py-20" :class="{ in: seen.includes(1) }">
+        <div class="reveal" style="--d:0">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 font-semibold text-white">1</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Contrato</span>
+          </div>
+          <h2 class="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">O estoque só nasce de um contrato de licitação</h2>
+          <p class="mt-3 text-slate-600">
+            Antes de qualquer item entrar, Compras cadastra o contrato com os itens, as quantidades contratadas e, a partir daí, o saldo a receber de cada um. Esse saldo é o limite para os recebimentos.
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <span class="rounded-full bg-slate-900 px-3 py-1 font-medium text-white">Quem: Compras (perfil Estoque)</span>
+            <span class="rounded-full bg-white px-3 py-1 font-medium ring-1 ring-slate-200">Módulo: Contratos e Recebimento</span>
+          </div>
+        </div>
+
+        <div class="reveal mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" style="--d:2">
+          <div class="border-b border-slate-100 px-4 py-3">
+            <p class="text-xs text-slate-500">Processo licitatório 012/2026 · Fornecedor</p>
+            <p class="font-medium">Ata de Registro de Preços 018/2026 · Alfa Suprimentos Ltda.</p>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[36rem] text-left text-sm">
+              <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr><th class="px-4 py-2 font-medium">Item</th><th class="px-4 py-2 font-medium">Contratado</th><th class="px-4 py-2 font-medium">Recebido</th><th class="px-4 py-2 font-medium">A receber</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="p in prods" :key="p.id">
+                  <tr>
+                    <td class="px-4 py-3">
+                      <span x-text="p.nome"></span>
+                      <span class="ml-2 rounded px-1.5 py-0.5 text-xs font-medium" :class="p.tipo === 'consumo' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'" x-text="p.tipo"></span>
+                    </td>
+                    <td class="px-4 py-3 tabular-nums"><span x-text="p.contratado"></span> <span class="text-xs text-slate-500" x-text="p.un"></span></td>
+                    <td class="px-4 py-3 tabular-nums font-medium text-emerald-700" x-text="p.rec"></td>
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-2">
+                        <span class="w-10 tabular-nums" x-text="aReceber(p)"></span>
+                        <div class="h-1.5 w-24 rounded-full bg-slate-100"><div class="h-full rounded-full bg-emerald-500 transition-all duration-700" :style="`width:${p.rec / p.contratado * 100}%`"></div></div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p class="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">As colunas “Recebido” e “A receber” se atualizam sozinhas quando você registrar recebimentos na etapa 2.</p>
+        </div>
+
+        <div class="mt-6 grid gap-4 sm:grid-cols-2">
+          <div class="reveal rounded-2xl border border-slate-200 bg-white p-5" style="--d:3">
+            <h3 class="text-sm font-semibold text-slate-900">Regras do sistema</h3>
+            <ul class="mt-3 space-y-2 text-sm text-slate-600">
+              <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Controle por item: quantidade contratada e saldo a receber.</li>
+              <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Cada item vem do catálogo (núcleo) e já traz o tipo: consumo ou permanente.</li>
+              <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Empenho fica fora do sistema.</li>
+            </ul>
+          </div>
+          <div class="reveal rounded-2xl border border-slate-200 bg-white p-5" style="--d:4">
+            <h3 class="text-sm font-semibold text-slate-900">Por que contrato?</h3>
+            <p class="mt-2 text-sm text-slate-600">A entrada no estoque é baseada nos itens recebidos de contratos de licitação. A regra “entrada exige contrato” é uma configuração do município: a SEMTRAS a mantém ligada.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 2 · RECEBIMENTO ============ -->
+      <section id="etapa-2" data-step="2" class="step scroll-mt-20 py-20" :class="{ in: seen.includes(2) }">
+        <div class="reveal" style="--d:0">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 font-semibold text-white">2</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Recebimento</span>
+          </div>
+          <h2 class="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">O material chega e é conferido contra o contrato</h2>
+          <p class="mt-3 text-slate-600">
+            Cada entrega vem com uma nota fiscal. Compras confere o que chegou contra o saldo a receber. Só então o sistema publica o evento de item recebido, e cada módulo cuida do que é seu.
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <span class="rounded-full bg-slate-900 px-3 py-1 font-medium text-white">Quem: Compras (perfil Estoque)</span>
+            <span class="rounded-full bg-white px-3 py-1 font-medium ring-1 ring-slate-200">Contratos e Recebimento</span>
+          </div>
+        </div>
+
+        <!-- NF 4521 -->
+        <div class="reveal mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm" style="--d:2">
+          <div>
+            <p class="text-xs text-slate-500">Primeira entrega</p>
+            <p class="font-medium">NF 4521 · papel A4 (200 resmas) + notebooks (4)</p>
+          </div>
+          <button type="button" @click="conferirNF()" :disabled="nf4521"
+                  class="rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-default"
+                  :class="nf4521 ? 'bg-emerald-50 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'"
+                  x-text="nf4521 ? '✓ Conferida' : 'Conferir NF 4521'"></button>
+        </div>
+
+        <!-- evento de domínio -->
+        <div class="reveal mt-4 grid items-center gap-3 sm:grid-cols-[1fr_auto_1fr]" style="--d:3">
+          <div class="rounded-xl bg-slate-900 p-4 text-white">
+            <p class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Contratos e Recebimento</p>
+            <p class="mt-1 text-sm">Confere a NF e publica o evento</p>
+          </div>
+          <div class="text-center text-xs text-slate-500">
+            <code class="rounded bg-slate-200 px-2 py-1">ItemRecebido</code>
+            <span class="mt-1 block sm:hidden">↓</span><span class="hidden sm:block">→</span>
+          </div>
+          <div class="space-y-2">
+            <div class="rounded-xl bg-white p-3 ring-1 ring-sky-200"><p class="text-xs font-semibold uppercase tracking-wider text-sky-700">Estoque · consumo</p><p class="text-sm text-slate-600">Gera uma entrada e soma ao saldo.</p></div>
+            <div class="rounded-xl bg-white p-3 ring-1 ring-amber-200"><p class="text-xs font-semibold uppercase tracking-wider text-amber-700">Patrimônio · permanente</p><p class="text-sm text-slate-600">Cria uma unidade tombada por item.</p></div>
+          </div>
+        </div>
+        <p class="reveal mt-2 text-xs text-slate-500" style="--d:3">Um módulo não lê as tabelas do outro: a comunicação é só por esse evento.</p>
+
+        <!-- formulário de recebimento -->
+        <div class="reveal mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" style="--d:4">
+          <h3 class="text-sm font-semibold text-slate-900">Registrar novo recebimento</h3>
+          <div class="mt-4 grid gap-3 sm:grid-cols-4">
+            <label class="text-xs font-medium text-slate-500 sm:col-span-2">Item
+              <select x-model="f.item" @change="ajustaUnid()" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <template x-for="p in prods" :key="p.id"><option :value="p.id" :selected="p.id === f.item" x-text="p.nome + ' (' + p.tipo + ')'"></option></template>
+              </select>
+            </label>
+            <label class="text-xs font-medium text-slate-500">Quantidade
+              <input type="number" min="1" x-model="f.qtd" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm tabular-nums text-slate-800">
+            </label>
+            <label class="text-xs font-medium text-slate-500">Unidade
+              <select x-model="f.unid" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <option value="base" x-text="prod(f.item).un"></option>
+                <template x-if="prod(f.item).porCaixa > 1"><option value="caixa" :selected="f.unid === 'caixa'" x-text="'caixa (' + prod(f.item).porCaixa + ' un)'"></option></template>
+              </select>
+            </label>
+            <label class="text-xs font-medium text-slate-500 sm:col-span-2">Nota fiscal
+              <input type="text" x-model="f.nf" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800">
+            </label>
+            <div class="flex items-end text-sm sm:col-span-2">
+              <p class="rounded-lg bg-slate-50 px-3 py-1.5 text-slate-600" x-text="'Registra: ' + previsao()"></p>
+            </div>
+          </div>
+          <div class="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" @click="receber()" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">Confirmar recebimento</button>
+            <p class="text-xs text-slate-500">Saldo a receber deste item no contrato: <strong class="tabular-nums" x-text="aReceber(prod(f.item))"></strong></p>
+          </div>
+          <p x-show="msg.rec" x-transition class="mt-3 rounded-lg px-3 py-2 text-sm" :class="msg.rec && msg.rec.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'" x-text="msg.rec && msg.rec.text"></p>
+          <p class="mt-3 text-xs text-slate-500">Tente: 600 canetas em caixas (50 caixas × 12) ou mais que o saldo a receber, para ver o bloqueio.</p>
+        </div>
+
+        <div class="reveal mt-6 rounded-2xl border border-slate-200 bg-white p-5" style="--d:5">
+          <h3 class="text-sm font-semibold text-slate-900">Regras do sistema</h3>
+          <ul class="mt-3 space-y-2 text-sm text-slate-600">
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>O recebimento é conferido contra o saldo a receber do contrato e traz a nota fiscal.</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Caixas são registradas em unidade padrão: 1 caixa de 12 → registra 12.</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Nunca há quantidade negativa ou zero.</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Tudo na mesma transação, e cada recebimento fica na auditoria.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============ 3 · SALDO ============ -->
+      <section id="etapa-3" data-step="3" class="step scroll-mt-20 py-20" :class="{ in: seen.includes(3) }">
+        <div class="reveal" style="--d:0">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 font-semibold text-white">3</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Saldo</span>
+          </div>
+          <h2 class="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Itens de consumo: cada movimento deixa um registro</h2>
+          <p class="mt-3 text-slate-600">
+            O saldo de um produto é o resultado das movimentações: o que entrou menos o que saiu. Toda entrada e toda saída vira uma linha com tipo, origem, quantidade, responsável e referência.
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <span class="rounded-full bg-slate-900 px-3 py-1 font-medium text-white">Quem: Compras (perfil Estoque)</span>
+            <span class="rounded-full bg-white px-3 py-1 font-medium ring-1 ring-slate-200">Módulo: Estoque</span>
+          </div>
+        </div>
+
+        <div class="reveal mt-8 rounded-2xl bg-slate-900 px-5 py-4 text-center text-white" style="--d:2">
+          <p class="text-xs uppercase tracking-widest text-emerald-400">Saldo</p>
+          <p class="mt-1 text-lg font-medium">entradas acumuladas − saídas acumuladas</p>
+        </div>
+
+        <div class="reveal mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" style="--d:3">
+          <div class="border-b border-slate-100 px-4 py-3"><p class="font-medium">Movimentações de estoque</p></div>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[46rem] text-left text-sm">
+              <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr><th class="px-4 py-2 font-medium">Data e hora</th><th class="px-4 py-2 font-medium">Tipo</th><th class="px-4 py-2 font-medium">Origem</th><th class="px-4 py-2 font-medium">Item</th><th class="px-4 py-2 font-medium">Qtd.</th><th class="px-4 py-2 font-medium">Saldo após</th><th class="px-4 py-2 font-medium">Referência</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr x-show="!livro.length"><td colspan="7" class="px-4 py-6 text-center text-sm text-slate-400">Nenhuma movimentação ainda. Confira a NF 4521 na etapa 2.</td></tr>
+                <template x-for="(m, i) in livroCalc" :key="m.t + m.id + m.tipo + i">
+                  <tr class="align-top">
+                    <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500" x-text="m.t"></td>
+                    <td class="px-4 py-2.5"><span class="rounded px-1.5 py-0.5 text-xs font-semibold" :class="m.tipo === 'Entrada' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'" x-text="m.tipo"></span></td>
+                    <td class="px-4 py-2.5" x-text="m.origem"></td>
+                    <td class="px-4 py-2.5" x-text="prod(m.id).nome"></td>
+                    <td class="px-4 py-2.5 tabular-nums font-medium" x-text="(m.tipo === 'Entrada' ? '+' : '−') + m.qtd"></td>
+                    <td class="px-4 py-2.5 tabular-nums" x-text="m.saldoApos"></td>
+                    <td class="px-4 py-2.5 text-xs text-slate-600"><span x-text="m.ref"></span><span class="block text-slate-400" x-text="m.user"></span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="reveal mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" style="--d:4">
+          <h3 class="text-sm font-semibold text-slate-900">Simular uma saída</h3>
+          <p class="mt-1 text-xs text-slate-500">No fluxo completo, quem gera a saída é a entrega de um pedido, que não faz parte desta página. Aqui ela só serve para mostrar o efeito no saldo.</p>
+          <div class="mt-3 flex flex-wrap items-end gap-3">
+            <label class="text-xs font-medium text-slate-500">Item
+              <select x-model="s.item" class="mt-1 block rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <template x-for="p in consumo" :key="p.id"><option :value="p.id" :selected="p.id === s.item" x-text="p.nome + ' · saldo ' + saldo(p.id)"></option></template>
+              </select>
+            </label>
+            <label class="text-xs font-medium text-slate-500">Quantidade
+              <input type="number" min="1" x-model="s.qtd" class="mt-1 block w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm tabular-nums text-slate-800">
+            </label>
+            <button type="button" @click="saida()" class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Registrar saída</button>
+          </div>
+          <p x-show="msg.saida" x-transition class="mt-3 rounded-lg px-3 py-2 text-sm" :class="msg.saida && msg.saida.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'" x-text="msg.saida && msg.saida.text"></p>
+        </div>
+
+        <div class="reveal mt-6 rounded-2xl border border-slate-200 bg-white p-5" style="--d:5">
+          <h3 class="text-sm font-semibold text-slate-900">Regras do sistema</h3>
+          <ul class="mt-3 space-y-2 text-sm text-slate-600">
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>O saldo nunca fica negativo: saída acima do saldo é bloqueada.</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Toda movimentação guarda o usuário responsável, a data e hora e uma referência (nota fiscal, pedido ou observação).</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>As movimentações são a base dos relatórios e da auditoria.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============ 4 · PATRIMÔNIO ============ -->
+      <section id="etapa-4" data-step="4" class="step scroll-mt-20 py-20" :class="{ in: seen.includes(4) }">
+        <div class="reveal" style="--d:0">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 font-semibold text-white">4</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Patrimônio</span>
+          </div>
+          <h2 class="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Bem permanente: cada unidade tem nome e endereço</h2>
+          <p class="mt-3 text-slate-600">
+            Itens permanentes não têm “saldo”. Cada notebook recebido vira uma unidade individual com número de tombamento, e o sistema sempre sabe onde ela está, com quem e por onde já passou.
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <span class="rounded-full bg-slate-900 px-3 py-1 font-medium text-white">Quem: Compras (perfil Estoque)</span>
+            <span class="rounded-full bg-white px-3 py-1 font-medium ring-1 ring-slate-200">Módulo: Patrimônio</span>
+          </div>
+        </div>
+
+        <div class="reveal mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" style="--d:2">
+          <div class="border-b border-slate-100 px-4 py-3"><p class="font-medium">Bens tombados</p><p class="text-xs text-slate-500">Clique em uma linha para escolher o bem.</p></div>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[34rem] text-left text-sm">
+              <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr><th class="px-4 py-2 font-medium">Tombo</th><th class="px-4 py-2 font-medium">Bem</th><th class="px-4 py-2 font-medium">Localização</th><th class="px-4 py-2 font-medium">Responsável</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr x-show="!bens.length"><td colspan="4" class="px-4 py-6 text-center text-sm text-slate-400">Nenhum bem tombado ainda. Confira a NF 4521 na etapa 2.</td></tr>
+                <template x-for="b in bens" :key="b.tombo">
+                  <tr @click="selBem = b.tombo" class="cursor-pointer transition-colors hover:bg-slate-50" :class="bemSel && bemSel.tombo === b.tombo ? 'bg-emerald-50/60' : ''">
+                    <td class="px-4 py-2.5 font-mono text-xs" :class="b.baixado ? 'text-slate-400 line-through' : ''" x-text="b.tombo"></td>
+                    <td class="px-4 py-2.5" x-text="b.desc"></td>
+                    <td class="px-4 py-2.5" x-text="b.baixado ? 'Baixado' : b.local"></td>
+                    <td class="px-4 py-2.5" x-text="b.baixado ? '—' : b.resp"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <div class="reveal rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" style="--d:3">
+            <h3 class="text-sm font-semibold text-slate-900">Transferir ou devolver</h3>
+            <p class="mt-1 text-xs text-slate-500">Bem: <span class="font-mono" x-text="bemSel ? bemSel.tombo : '—'"></span>. Escolher “Almoxarifado” é uma devolução.</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <select x-model="destino" class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <template x-for="st in setores" :key="st"><option :selected="st === destino" x-text="st"></option></template>
+              </select>
+              <button type="button" @click="transferir()" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">Registrar</button>
+            </div>
+            <h3 class="mt-5 text-sm font-semibold text-slate-900">Dar baixa</h3>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <select x-model="motivo" class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"><option>Inservível</option><option>Extravio</option></select>
+              <button type="button" @click="baixar()" class="rounded-lg bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-100">Dar baixa</button>
+            </div>
+            <p x-show="msg.pat" x-transition class="mt-3 rounded-lg px-3 py-2 text-sm" :class="msg.pat && msg.pat.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'" x-text="msg.pat && msg.pat.text"></p>
+          </div>
+          <div class="reveal rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" style="--d:4">
+            <h3 class="text-sm font-semibold text-slate-900">Histórico do bem <span class="font-mono text-xs text-slate-500" x-text="bemSel ? bemSel.tombo : ''"></span></h3>
+            <p x-show="!bemSel" class="mt-3 text-sm text-slate-400">Sem bem selecionado.</p>
+            <ol class="mt-3 space-y-3" x-show="bemSel">
+              <template x-for="(h, i) in (bemSel ? bemSel.hist : [])" :key="h.t + i">
+                <li class="border-l-2 border-emerald-500 pl-3">
+                  <p class="font-mono text-[11px] text-slate-400" x-text="h.t"></p>
+                  <p class="text-sm" x-text="h.txt"></p>
+                </li>
+              </template>
+            </ol>
+          </div>
+        </div>
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <div class="reveal rounded-2xl border border-slate-200 bg-white p-5" style="--d:5">
+            <h3 class="text-sm font-semibold text-slate-900">Regras do sistema</h3>
+            <ul class="mt-3 space-y-2 text-sm text-slate-600">
+              <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Cada bem é uma unidade individual: tombo, localização e responsável atuais.</li>
+              <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Transferência entre setores, devolução e baixa ficam no histórico do bem.</li>
+              <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Etiqueta com QR code não entra no MVP.</li>
+            </ul>
+          </div>
+          <div class="reveal rounded-2xl border-2 border-dashed border-slate-300 p-5" style="--d:6">
+            <h3 class="text-sm font-semibold text-slate-900">Inventário já existente</h3>
+            <p class="mt-2 text-sm text-slate-600">Os bens que o município já possui entram por importação do inventário, e a partir daí seguem o mesmo rastreio.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 5 · ALERTAS ============ -->
+      <section id="etapa-5" data-step="5" class="step scroll-mt-20 py-20" :class="{ in: seen.includes(5) }">
+        <div class="reveal" style="--d:0">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 font-semibold text-white">5</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Alertas e relatórios</span>
+          </div>
+          <h2 class="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">O sistema avisa antes de faltar</h2>
+          <p class="mt-3 text-slate-600">
+            Cada produto de consumo tem um estoque mínimo. Quando o saldo chega nele ou abaixo, o item fica em vermelho e entra na lista de reposição.
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <span class="rounded-full bg-white px-3 py-1 font-medium ring-1 ring-slate-200">Módulo: Estoque</span>
+            <span class="rounded-full bg-white px-3 py-1 font-medium ring-1 ring-slate-200">Relatórios básicos</span>
+          </div>
+        </div>
+
+        <div class="reveal mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" style="--d:2">
+          <div class="border-b border-slate-100 px-4 py-3"><p class="font-medium">Estoque atual por produto</p></div>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[36rem] text-left text-sm">
+              <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr><th class="px-4 py-2 font-medium">Produto</th><th class="px-4 py-2 font-medium">Saldo</th><th class="px-4 py-2 font-medium">Mínimo</th><th class="px-4 py-2 font-medium">Situação</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="p in consumo" :key="p.id">
+                  <tr :class="['zero', 'baixo'].includes(situacao(p).k) ? 'bg-rose-50/60' : ''">
+                    <td class="px-4 py-3" x-text="p.nome"></td>
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-2">
+                        <span class="w-12 tabular-nums font-medium" :class="['zero', 'baixo'].includes(situacao(p).k) ? 'text-rose-700' : ''" x-text="saldo(p.id)"></span>
+                        <div class="relative h-1.5 w-28 rounded-full bg-slate-100">
+                          <div class="h-full rounded-full transition-all duration-500" :class="['zero', 'baixo'].includes(situacao(p).k) ? 'bg-rose-500' : 'bg-emerald-500'" :style="`width:${Math.min(100, saldo(p.id) / (p.min * 2) * 100)}%`"></div>
+                          <div class="absolute -top-0.5 h-2.5 w-px bg-slate-500" style="left:50%" title="Estoque mínimo"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 tabular-nums" x-text="p.min"></td>
+                    <td class="px-4 py-3"><span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="situacao(p).cls" x-text="situacao(p).label"></span></td>
+                  </tr>
+                </template>
+                <tr>
+                  <td class="px-4 py-3">Notebook 14" 8 GB <span class="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">permanente</span></td>
+                  <td class="px-4 py-3 tabular-nums" x-text="bensAtivos.length + ' bem(ns)'"></td>
+                  <td class="px-4 py-3 text-xs text-slate-400" colspan="2">controlado por unidade, não por mínimo</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="border-t border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">A marca no meio da barra indica o estoque mínimo. Registre uma saída de 110 resmas na etapa 3 para ver o alerta.</p>
+        </div>
+
+        <div class="reveal mt-4 rounded-2xl border p-5" style="--d:3" :class="reposicao.length ? 'border-rose-200 bg-rose-50/50' : 'border-slate-200 bg-white'">
+          <h3 class="flex items-center gap-2 text-sm font-semibold" :class="reposicao.length ? 'text-rose-800' : 'text-slate-900'">
+            <svg x-show="reposicao.length" class="h-4 w-4 fill-none stroke-rose-600 stroke-2"><use href="#i-alert"/></svg>Relatório de reposição
+          </h3>
+          <p x-show="!reposicao.length" class="mt-2 text-sm text-slate-500">Nenhum item abaixo do mínimo agora.</p>
+          <ul class="mt-2 space-y-1.5 text-sm" x-show="reposicao.length">
+            <template x-for="p in reposicao" :key="p.id">
+              <li class="flex flex-wrap justify-between gap-2 text-rose-900">
+                <span><strong x-text="p.nome"></strong>: saldo <span x-text="saldo(p.id)"></span>, mínimo <span x-text="p.min"></span></span>
+                <span class="text-xs text-rose-700" x-text="'saldo a receber no contrato: ' + aReceber(p)"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+
+        <div class="reveal mt-6 rounded-2xl border border-slate-200 bg-white p-5" style="--d:4">
+          <h3 class="text-sm font-semibold text-slate-900">Relatórios básicos do MVP</h3>
+          <ul class="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Estoque atual por produto</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Reposição (saldo ≤ mínimo)</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Itens sem saldo</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Localização dos bens permanentes</li>
+          </ul>
+          <p class="mt-3 text-xs text-slate-500">Relatórios avançados ficam fora do MVP.</p>
+        </div>
+      </section>
+
+      <!-- ============ 6 · EXCEÇÕES ============ -->
+      <section id="etapa-6" data-step="6" class="step scroll-mt-20 min-h-screen py-20" :class="{ in: seen.includes(6) }">
+        <div class="reveal" style="--d:0">
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 font-semibold text-white">6</span>
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Exceções e auditoria</span>
+          </div>
+          <h2 class="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Fora do contrato só com justificativa, e tudo fica registrado</h2>
+          <p class="mt-3 text-slate-600">
+            Doação, ajuste de inventário e saldo inicial não vêm de contrato. São permitidos como exceção, mas exigem permissão específica e uma justificativa obrigatória.
+          </p>
+        </div>
+
+        <div class="reveal mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" style="--d:2">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-slate-900">Entrada excepcional</h3>
+            <label class="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+              <input type="checkbox" x-model="permExcecao" class="h-4 w-4 accent-emerald-600">
+              Meu perfil tem a permissão “entrada excepcional”
+            </label>
+          </div>
+          <div class="mt-4 grid gap-3 sm:grid-cols-4">
+            <label class="text-xs font-medium text-slate-500 sm:col-span-2">Item
+              <select x-model="x.item" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <template x-for="p in consumo" :key="p.id"><option :value="p.id" :selected="p.id === x.item" x-text="p.nome"></option></template>
+              </select>
+            </label>
+            <label class="text-xs font-medium text-slate-500">Quantidade
+              <input type="number" min="1" x-model="x.qtd" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm tabular-nums text-slate-800">
+            </label>
+            <label class="text-xs font-medium text-slate-500">Origem
+              <select x-model="x.origem" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"><option>Doação</option><option>Ajuste de inventário</option><option>Saldo inicial</option></select>
+            </label>
+            <label class="text-xs font-medium text-slate-500 sm:col-span-4">Justificativa (obrigatória)
+              <input type="text" x-model="x.just" placeholder="Ex.: doação do Banco de Alimentos conforme ofício 123" class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-800">
+            </label>
+          </div>
+          <button type="button" @click="excecao()" class="mt-4 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">Registrar entrada</button>
+          <p x-show="msg.exc" x-transition class="mt-3 rounded-lg px-3 py-2 text-sm" :class="msg.exc && msg.exc.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'" x-text="msg.exc && msg.exc.text"></p>
+          <p class="mt-3 text-xs text-slate-500">A regra “entrada exige contrato” é configurável por município. Um município que aceite entrada manual como caminho normal só precisa desligá-la, e a justificativa continua obrigatória.</p>
+        </div>
+
+        <div class="reveal mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" style="--d:3">
+          <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <p class="font-medium">Trilha de auditoria desta simulação</p>
+            <span class="text-xs text-slate-500" x-text="audit.length + ' registros'"></span>
+          </div>
+          <div class="max-h-96 overflow-auto">
+            <table class="w-full min-w-[40rem] text-left text-sm">
+              <thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr><th class="px-4 py-2 font-medium">Data e hora</th><th class="px-4 py-2 font-medium">Quem</th><th class="px-4 py-2 font-medium">O que fez</th><th class="px-4 py-2 font-medium">Detalhe</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="(a, i) in audit" :key="i">
+                  <tr class="align-top">
+                    <td class="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500" x-text="a.t"></td>
+                    <td class="px-4 py-2.5" x-text="a.u"></td>
+                    <td class="px-4 py-2.5" x-text="a.acao"></td>
+                    <td class="px-4 py-2.5 text-xs text-slate-600" x-text="a.det"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="reveal mt-6 rounded-2xl border border-slate-200 bg-white p-5" style="--d:4">
+          <h3 class="text-sm font-semibold text-slate-900">Como a trilha é protegida</h3>
+          <ul class="mt-3 space-y-2 text-sm text-slate-600">
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-lock"/></svg>Só inclusão: o usuário do banco da aplicação não tem UPDATE nem DELETE na tabela de auditoria.</li>
+            <li class="flex gap-2"><svg class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-2"><use href="#i-check"/></svg>Guarda autor, data, hora, IP e valores antes e depois. Está sempre ativa e não é configurável.</li>
+          </ul>
+        </div>
+
+        <p class="mt-10 text-xs text-slate-400">Fluxo de estocagem · dados fictícios · fonte: <code>docs/analise-requisitos.md</code> e <code>docs/descricao basica/Projeto Controle de Pedidos.pdf</code>. O fluxo completo, com pedido e entrega, está em <code>docs/fluxo-do-sistema.html</code>.</p>
+      </section>
+    </main>
+
+    <!-- ===================== PAINEL: ESTADO DO ESTOQUE ===================== -->
+    <aside class="fixed inset-x-0 bottom-0 z-30 lg:static lg:z-auto lg:pt-20" x-show="active >= 1" x-transition.opacity>
+      <div class="lg:sticky lg:top-20">
+        <div class="rounded-t-2xl border border-slate-200 bg-white shadow-lg lg:rounded-2xl lg:shadow-sm">
+          <button type="button" @click="open = !open" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left lg:cursor-default">
+            <span>
+              <span class="block text-xs font-semibold uppercase tracking-wider text-slate-500">Estado do estoque agora</span>
+              <span class="mt-1 flex flex-wrap gap-1.5 text-xs font-semibold">
+                <span class="rounded-full bg-sky-100 px-2.5 py-1 text-sky-800" x-text="'Papel ' + saldo('papel')"></span>
+                <span class="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800" x-text="bensAtivos.length + ' bens'"></span>
+              </span>
+            </span>
+            <span class="text-xs text-slate-400 lg:hidden" x-text="open ? 'fechar' : 'detalhes'"></span>
+          </button>
+
+          <div :class="open ? 'block' : 'hidden lg:block'" class="max-h-[55vh] space-y-5 overflow-y-auto border-t border-slate-100 px-4 py-4 text-sm lg:max-h-[calc(100vh-11rem)]">
+            <div>
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Contrato · saldo a receber</h4>
+              <template x-for="p in prods" :key="p.id">
+                <p class="mt-1 flex justify-between"><span x-text="p.nome.split(' ').slice(0, 2).join(' ')"></span><span class="tabular-nums font-medium" x-text="aReceber(p) + ' / ' + p.contratado"></span></p>
+              </template>
+            </div>
+
+            <div>
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Estoque (consumo)</h4>
+              <template x-for="p in consumo" :key="p.id">
+                <div class="mt-1.5">
+                  <p class="flex items-center justify-between">
+                    <span x-text="p.nome.split(' ').slice(0, 2).join(' ') + ' · mín. ' + p.min"></span>
+                    <span class="rounded px-1.5 py-0.5 tabular-nums font-semibold" :class="['zero', 'baixo'].includes(situacao(p).k) ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-800'" x-text="saldo(p.id) + ' ' + p.un"></span>
+                  </p>
+                  <p x-show="['zero', 'baixo'].includes(situacao(p).k)" class="text-xs text-rose-600">Saldo ≤ mínimo: reposição necessária.</p>
+                </div>
+              </template>
+            </div>
+
+            <div>
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Patrimônio · onde estão os bens</h4>
+              <p x-show="!bensAtivos.length" class="mt-1.5 text-xs text-slate-400">Nenhum bem tombado ainda.</p>
+              <div class="mt-1.5 flex flex-wrap gap-1.5">
+                <template x-for="[local, n] in porLocal" :key="local">
+                  <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-900 ring-1 ring-amber-200" x-text="local + ': ' + n"></span>
+                </template>
+              </div>
+            </div>
+
+            <div>
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Últimas movimentações</h4>
+              <p x-show="!livro.length" class="mt-1.5 text-xs text-slate-400">Nenhuma ainda.</p>
+              <ul class="mt-2 space-y-2.5">
+                <template x-for="(m, i) in movRecentes" :key="m.t + m.id + m.tipo + i">
+                  <li class="border-l-2 pl-3" :class="i === 0 ? 'border-emerald-500' : 'border-slate-200'">
+                    <p class="font-mono text-[11px] text-slate-400" x-text="m.t"></p>
+                    <p class="text-xs"><span class="font-semibold" :class="m.tipo === 'Entrada' ? 'text-emerald-700' : 'text-amber-700'" x-text="(m.tipo === 'Entrada' ? '+' : '−') + m.qtd"></span> <span x-text="prod(m.id).nome"></span> · <span class="text-slate-500" x-text="m.origem"></span></p>
+                  </li>
+                </template>
+              </ul>
+            </div>
+
+            <button type="button" @click="reiniciar()" class="w-full rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Reiniciar simulação</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>
