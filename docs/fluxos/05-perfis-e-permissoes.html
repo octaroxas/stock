@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Perfis e permissões — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>[x-cloak] { display: none !important; }</style>
+
+  <script>
+    function perfis() {
+      const PERFIS = [
+        { id: 'Administrador',       desc: 'Cuida do cadastro do município: usuários, setores, configuração e consulta à auditoria.', proposto: true },
+        { id: 'Estoque',             desc: 'Controla o catálogo, os contratos, o recebimento, o saldo e o patrimônio.' },
+        { id: 'Solicitante',         desc: 'Monta e envia os pedidos do seu setor.' },
+        { id: 'Gestor_autorizador',  desc: 'Aprova ou reprova as etapas de autorização.' },
+        { id: 'Distribuição',        desc: 'Separa os itens autorizados, entrega e emite os termos.' },
+      ];
+
+      const GRUPOS = [
+        { modulo: 'Núcleo', perms: [
+          ['usuarios.gerenciar', 'Cadastrar usuários e atribuir perfis'],
+          ['setores.gerenciar', 'Cadastrar setores'],
+          ['itens.gerenciar', 'Cadastrar produtos do catálogo'],
+          ['config.gerenciar', 'Configurar módulos e fluxo de autorização'],
+          ['auditoria.ver', 'Consultar a auditoria'],
+        ] },
+        { modulo: 'Estoque', perms: [
+          ['estoque.ver', 'Ver saldo e movimentações'],
+          ['estoque.entrada_excepcional', 'Dar entrada fora de contrato (doação, ajuste, saldo inicial)'],
+        ] },
+        { modulo: 'Patrimônio', perms: [
+          ['bens.ver', 'Ver bens e o histórico de localização'],
+          ['bens.transferir', 'Transferir bem entre setores e registrar devolução'],
+          ['bens.baixar', 'Dar baixa em bem'],
+          ['bens.importar', 'Importar o inventário existente'],
+        ] },
+        { modulo: 'Contratos e Recebimento', perms: [
+          ['contratos.gerenciar', 'Cadastrar fornecedores e contratos'],
+          ['recebimentos.conferir', 'Conferir o recebimento com a nota fiscal'],
+        ] },
+        { modulo: 'Pedidos e Autorização', perms: [
+          ['pedidos.criar', 'Criar, editar e enviar pedidos do próprio setor'],
+          ['pedidos.ver_setor', 'Ver os pedidos do próprio setor'],
+          ['pedidos.ver_todos', 'Ver os pedidos de todos os setores'],
+          ['pedidos.cancelar', 'Cancelar o próprio pedido'],
+          ['pedidos.autorizar', 'Aprovar ou reprovar uma etapa de autorização'],
+        ] },
+        { modulo: 'Distribuição e Termos', perms: [
+          ['entregas.separar', 'Separar os itens de um pedido autorizado'],
+          ['entregas.entregar', 'Confirmar a entrega'],
+          ['termos.emitir', 'Emitir termo de recebimento e de responsabilidade'],
+        ] },
+        { modulo: 'Relatórios', perms: [
+          ['relatorios.ver', 'Ver os relatórios dos módulos ativos'],
+        ] },
+      ].map(g => ({ ...g, perms: g.perms.map(([id, nome]) => ({ id, nome })) }));
+
+      // Permissões que nenhum perfil traz: só se concedem direto ao usuário.
+      const DIRETAS = ['estoque.entrada_excepcional'];
+
+      const DA = {
+        Administrador: ['usuarios.gerenciar', 'setores.gerenciar', 'config.gerenciar', 'auditoria.ver', 'relatorios.ver'],
+        Estoque: ['itens.gerenciar', 'estoque.ver', 'bens.ver', 'bens.transferir', 'bens.baixar', 'bens.importar', 'contratos.gerenciar', 'recebimentos.conferir', 'pedidos.ver_todos', 'relatorios.ver'],
+        Solicitante: ['pedidos.criar', 'pedidos.ver_setor', 'pedidos.cancelar'],
+        Gestor_autorizador: ['pedidos.ver_todos', 'pedidos.autorizar', 'estoque.ver', 'relatorios.ver'],
+        Distribuição: ['pedidos.ver_todos', 'entregas.separar', 'entregas.entregar', 'termos.emitir', 'estoque.ver', 'bens.ver'],
+      };
+
+      const MENU = [
+        { label: 'Pedidos', any: ['pedidos.criar', 'pedidos.ver_setor', 'pedidos.ver_todos'] },
+        { label: 'Autorizações', any: ['pedidos.autorizar'] },
+        { label: 'Separação e entrega', any: ['entregas.separar', 'entregas.entregar'] },
+        { label: 'Termos', any: ['termos.emitir'] },
+        { label: 'Saldo e movimentações', any: ['estoque.ver'] },
+        { label: 'Entrada fora de contrato', any: ['estoque.entrada_excepcional'] },
+        { label: 'Recebimentos', any: ['recebimentos.conferir'] },
+        { label: 'Contratos', any: ['contratos.gerenciar'] },
+        { label: 'Bens (patrimônio)', any: ['bens.ver'] },
+        { label: 'Produtos', any: ['itens.gerenciar'] },
+        { label: 'Relatórios', any: ['relatorios.ver'] },
+        { label: 'Usuários e perfis', any: ['usuarios.gerenciar'] },
+        { label: 'Setores', any: ['setores.gerenciar'] },
+        { label: 'Configurações', any: ['config.gerenciar'] },
+        { label: 'Auditoria', any: ['auditoria.ver'] },
+      ];
+
+      const STATUS = [
+        ['rascunho', 'Rascunho'], ['enviado_para_aprovacao', 'Enviado para aprovação'], ['aprovado', 'Aprovado'], ['reprovado', 'Reprovado'],
+        ['parcialmente_atendido', 'Parcialmente atendido'], ['atendido', 'Atendido'], ['cancelado', 'Cancelado'],
+      ];
+      const ROT = Object.fromEntries(STATUS);
+
+      const ACOES = {
+        editar:   { label: 'Editar o pedido',                 perm: 'pedidos.criar',              pedido: true,  policy: 'PedidoPolicy::update' },
+        cancelar: { label: 'Cancelar o pedido',               perm: 'pedidos.cancelar',           pedido: true,  policy: 'PedidoPolicy::cancelar' },
+        autorizar:{ label: 'Autorizar o pedido',              perm: 'pedidos.autorizar',          pedido: true,  policy: 'PedidoPolicy::autorizar' },
+        separar:  { label: 'Separar os itens',                perm: 'entregas.separar',           pedido: true,  policy: 'EntregaPolicy::separar' },
+        entregar: { label: 'Confirmar a entrega',             perm: 'entregas.entregar',          pedido: true,  policy: 'EntregaPolicy::entregar' },
+        entrada:  { label: 'Dar entrada fora de contrato',    perm: 'estoque.entrada_excepcional', pedido: false, policy: 'MovimentacaoPolicy::entradaExcepcional' },
+      };
+
+      const CENARIOS = [
+        { nome: 'Solicitante tenta aprovar o próprio pedido', ativos: ['Solicitante', 'Gestor_autorizador'], diretas: [], ctx: { acao: 'autorizar', autor: 'eu', status: 'enviado_para_aprovacao', etapa: 'sim' } },
+        { nome: 'Gestor aprova pedido de outro setor', ativos: ['Gestor_autorizador'], diretas: [], ctx: { acao: 'autorizar', autor: 'outro', status: 'enviado_para_aprovacao', etapa: 'sim' } },
+        { nome: 'Solicitante edita pedido já enviado', ativos: ['Solicitante'], diretas: [], ctx: { acao: 'editar', autor: 'eu', status: 'enviado_para_aprovacao', etapa: 'sim' } },
+        { nome: 'Estoque sem a permissão específica dá entrada excepcional', ativos: ['Estoque'], diretas: [], ctx: { acao: 'entrada', autor: 'eu', status: 'rascunho', etapa: 'sim' } },
+      ];
+
+      return {
+        PERFIS, GRUPOS, DIRETAS, STATUS, ACOES, CENARIOS, DA,
+        ativos: ['Solicitante'], diretas: [],
+        ctx: { acao: 'autorizar', autor: 'eu', status: 'enviado_para_aprovacao', etapa: 'sim' },
+
+        // ---- perfis e permissões do usuário ----
+        alternarPerfil(id) {
+          this.ativos = this.ativos.includes(id) ? this.ativos.filter(p => p !== id) : [...this.ativos, id];
+        },
+        alternarDireta(id) {
+          this.diretas = this.diretas.includes(id) ? this.diretas.filter(p => p !== id) : [...this.diretas, id];
+        },
+        get efetivas() {
+          return new Set([...this.ativos.flatMap(p => DA[p]), ...this.diretas]);
+        },
+        tem(p) { return this.efetivas.has(p); },
+        daPerfil(perfil, p) { return DA[perfil].includes(p); },
+        get total() { return GRUPOS.reduce((n, g) => n + g.perms.length, 0); },
+
+        // ---- menu ----
+        get menu() {
+          return MENU.map(m => ({ ...m, visivel: m.any.some(p => this.tem(p)) }));
+        },
+        sufixoMenu(m) {
+          if (!m.visivel || m.label !== 'Pedidos') return '';
+          if (this.tem('pedidos.ver_todos')) return 'todos os setores';
+          if (this.tem('pedidos.ver_setor')) return 'só do seu setor';
+          return '';
+        },
+        get avisos() {
+          const a = [];
+          if (this.ativos.includes('Solicitante') && this.ativos.includes('Gestor_autorizador'))
+            a.push('Aprova pedidos de outras pessoas, mas nunca os que ele mesmo pediu (segregação de funções).');
+          if (this.ativos.includes('Estoque') && this.ativos.includes('Distribuição'))
+            a.push('Combinação esperada: na prática é o papel de Compras, que controla o estoque e entrega.');
+          if (this.diretas.length && !this.ativos.includes('Estoque'))
+            a.push('Entrada excepcional concedida a quem não tem o perfil Estoque: a permissão vale, mas fica difícil de enxergar. Prefira conceder a quem já é do Estoque.');
+          if (!this.ativos.length && !this.diretas.length) a.push('Sem perfil, o usuário entra no sistema e não vê nenhuma tela.');
+          return a;
+        },
+
+        // ---- teste de uma ação ----
+        get acao() { return ACOES[this.ctx.acao]; },
+        get verificacoes() {
+          const c = this.ctx, a = this.acao, v = [];
+          v.push({ camada: 'Permissão', ok: this.tem(a.perm), txt: `Tem a permissão ${a.perm}` });
+          if (c.acao === 'editar') {
+            v.push({ camada: 'Policy', ok: c.autor !== 'outro', txt: 'O pedido é seu ou do seu setor' });
+            v.push({ camada: 'Policy', ok: c.status === 'rascunho', txt: 'O pedido ainda é um rascunho (depois do envio não se altera)' });
+          } else if (c.acao === 'cancelar') {
+            v.push({ camada: 'Policy', ok: c.autor === 'eu', txt: 'O pedido é seu' });
+            v.push({ camada: 'Policy', ok: ['rascunho', 'enviado_para_aprovacao', 'aprovado'].includes(c.status), txt: 'Ainda não houve entrega' });
+          } else if (c.acao === 'autorizar') {
+            v.push({ camada: 'Policy', ok: c.status === 'enviado_para_aprovacao', txt: 'O pedido está aguardando aprovação' });
+            v.push({ camada: 'Policy', ok: c.autor !== 'eu', txt: 'Você não é o solicitante do pedido (segregação de funções)' });
+            v.push({ camada: 'Policy', ok: c.etapa === 'sim', txt: 'A etapa atual designa o seu setor ou perfil como aprovador' });
+          } else if (c.acao === 'separar' || c.acao === 'entregar') {
+            v.push({ camada: 'Policy', ok: ['aprovado', 'parcialmente_atendido'].includes(c.status), txt: 'O pedido está aprovado e com itens a entregar' });
+          }
+          return v;
+        },
+        get permitido() { return this.verificacoes.every(v => v.ok); },
+        get motivo() { const f = this.verificacoes.find(v => !v.ok); return f ? f.txt : ''; },
+        get nota() {
+          return {
+            entregar: 'A quantidade entregue não passa da aprovada nem do saldo: isso é validado na classe de ação, dentro da transação.',
+            entrada: 'Permitido ainda exige justificativa e fica registrado na auditoria.',
+          }[this.ctx.acao] || '';
+        },
+        aplicar(i) {
+          const c = CENARIOS[i];
+          this.ativos = [...c.ativos]; this.diretas = [...c.diretas]; this.ctx = { ...c.ctx };
+        },
+        rotuloStatus(s) { return ROT[s]; },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="perfis()" x-cloak>
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4z" stroke-linejoin="round"/><path d="M12 10v4M12 17.5v.01" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-7xl">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Núcleo</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Perfis e permissões</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        Cada perfil reúne permissões, e um usuário pode acumular perfis. Marque os perfis de uma pessoa à esquerda e veja à direita as telas que ela passa a ter. Mais abaixo está a matriz completa e um teste de ações, que mostra por que a permissão sozinha não basta: quem pode aprovar um pedido também precisa não ser quem o pediu.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-7xl px-4 pb-20 sm:px-6">
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+
+      <!-- ================= USUÁRIO ================= -->
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-lg font-semibold text-slate-900">1 · Perfis do usuário</h2>
+        <p class="mt-1 text-xs text-slate-500">Marque quantos quiser. As permissões se somam.</p>
+
+        <div class="mt-3 space-y-2">
+          <template x-for="p in PERFIS" :key="p.id">
+            <button type="button" @click="alternarPerfil(p.id)" class="flex w-full items-start gap-3 rounded-xl border p-3 text-left transition"
+                    :class="ativos.includes(p.id) ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'"
+                    :aria-pressed="ativos.includes(p.id)">
+              <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded border"
+                    :class="ativos.includes(p.id) ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300 bg-white'">
+                <svg x-show="ativos.includes(p.id)" class="h-3 w-3 fill-none stroke-white stroke-[3]"><use href="#i-check"/></svg>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-center gap-2">
+                  <span class="text-sm font-semibold" x-text="p.id"></span>
+                  <span x-show="p.proposto" class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">proposto, não está no PDF</span>
+                  <span class="text-xs text-slate-400" x-text="DA[p.id].length + ' permissões'"></span>
+                </span>
+                <span class="mt-0.5 block text-xs text-slate-600" x-text="p.desc"></span>
+              </span>
+            </button>
+          </template>
+        </div>
+
+        <div class="mt-4 rounded-xl border border-dashed border-slate-300 p-3">
+          <p class="text-xs font-medium text-slate-500">Permissões concedidas direto ao usuário</p>
+          <p class="mt-0.5 text-xs text-slate-500">Nenhum perfil traz estas. Quem decide é o Administrador, caso a caso.</p>
+          <template x-for="id in DIRETAS" :key="id">
+            <label class="mt-2 flex items-start gap-2 text-sm">
+              <input type="checkbox" :checked="diretas.includes(id)" @change="alternarDireta(id)" class="mt-0.5 h-4 w-4 accent-emerald-600">
+              <span><code class="rounded bg-slate-100 px-1 text-xs" x-text="id"></code> <span class="text-xs text-slate-600">dar entrada fora de contrato</span></span>
+            </label>
+          </template>
+        </div>
+
+        <div x-show="avisos.length" class="mt-4 rounded-xl bg-slate-50 p-3">
+          <p class="text-xs font-medium text-slate-500">Sobre esta combinação</p>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+            <template x-for="a in avisos" :key="a"><li x-text="a"></li></template>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================= TELAS ================= -->
+      <section>
+        <h2 class="text-lg font-semibold text-slate-900">2 · O que essa pessoa vê</h2>
+        <div class="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+            <div>
+              <p class="text-xs text-slate-500">Menu lateral</p>
+              <p class="font-medium" x-text="ativos.length ? ativos.join(' + ') : 'Sem perfil'"></p>
+            </div>
+            <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800" x-text="efetivas.size + ' de ' + total + ' permissões'"></span>
+          </div>
+          <ul class="divide-y divide-slate-100">
+            <template x-for="m in menu" :key="m.label">
+              <li class="flex items-center justify-between gap-2 px-4 py-2 text-sm" :class="m.visivel ? '' : 'bg-slate-50/60'">
+                <span class="flex items-center gap-2" :class="m.visivel ? 'font-medium text-slate-900' : 'text-slate-400'">
+                  <svg x-show="m.visivel" class="h-4 w-4 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+                  <svg x-show="!m.visivel" class="h-4 w-4 fill-none stroke-slate-300 stroke-2"><use href="#i-x"/></svg>
+                  <span x-text="m.label"></span>
+                </span>
+                <span class="text-xs text-slate-500" x-text="m.visivel ? sufixoMenu(m) : 'não aparece'"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+        <p class="mt-3 text-xs text-slate-500">O menu só esconde o caminho. A rota também é protegida por permissão, e a ação passa pela Policy: quem digitar o endereço de uma tela sem acesso recebe “403”.</p>
+      </section>
+    </div>
+
+    <!-- ================= MATRIZ ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">3 · Matriz de permissões</h2>
+      <p class="mt-1 text-xs text-slate-500">As colunas dos perfis marcados acima ficam em destaque. Clique no cabeçalho de um perfil para marcá-lo ou desmarcá-lo, ou na coluna “Direto” para conceder a permissão específica.</p>
+
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full min-w-[44rem] text-left text-sm">
+          <thead class="text-xs font-medium text-slate-500">
+            <tr>
+              <th class="py-2 pr-4">Permissão</th>
+              <template x-for="p in PERFIS" :key="p.id">
+                <th class="px-1 py-2 text-center">
+                  <button type="button" @click="alternarPerfil(p.id)" class="rounded-lg px-2 py-1 text-xs font-semibold transition"
+                          :class="ativos.includes(p.id) ? 'bg-emerald-600 text-white' : 'text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'" x-text="p.id"></button>
+                </th>
+              </template>
+              <th class="px-1 py-2 text-center">Direto</th>
+              <th class="px-2 py-2 text-center">Tem?</th>
+            </tr>
+          </thead>
+          <template x-for="g in GRUPOS" :key="g.modulo">
+            <tbody class="divide-y divide-slate-100">
+              <tr class="bg-slate-50"><td colspan="8" class="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500" x-text="g.modulo"></td></tr>
+              <template x-for="p in g.perms" :key="p.id">
+                <tr>
+                  <td class="py-1.5 pr-4">
+                    <code class="text-xs font-semibold text-slate-900" x-text="p.id"></code>
+                    <span class="block text-xs text-slate-500" x-text="p.nome"></span>
+                  </td>
+                  <template x-for="r in PERFIS" :key="r.id">
+                    <td class="px-1 py-1.5 text-center" :class="ativos.includes(r.id) ? 'bg-emerald-50' : ''">
+                      <svg x-show="daPerfil(r.id, p.id)" class="mx-auto h-4 w-4 fill-none stroke-[3]" :class="ativos.includes(r.id) ? 'stroke-emerald-600' : 'stroke-slate-400'"><use href="#i-check"/></svg>
+                    </td>
+                  </template>
+                  <td class="px-1 py-1.5 text-center">
+                    <button type="button" x-show="DIRETAS.includes(p.id)" @click="alternarDireta(p.id)" class="rounded-md px-2 py-0.5 text-xs font-semibold"
+                            :class="diretas.includes(p.id) ? 'bg-emerald-600 text-white' : 'border border-dashed border-slate-300 text-slate-500 hover:bg-slate-50'"
+                            x-text="diretas.includes(p.id) ? 'concedida' : 'conceder'"></button>
+                  </td>
+                  <td class="px-2 py-1.5 text-center">
+                    <span x-show="tem(p.id)" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">sim</span>
+                    <span x-show="!tem(p.id)" class="text-xs text-slate-300">—</span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </template>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= TESTE ================= -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">4 · A permissão basta? Teste uma ação</h2>
+      <p class="mt-1 text-sm text-slate-600">O pacote de permissões responde “esse perfil pode fazer esse tipo de coisa?”. A Policy responde “pode fazer nesta linha, agora?”. Para o usuário montado acima, escolha o que ele tenta fazer.</p>
+
+      <div class="mt-3 flex flex-wrap gap-2">
+        <template x-for="(c, i) in CENARIOS" :key="c.nome">
+          <button type="button" @click="aplicar(i)" class="rounded-full px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50" x-text="c.nome"></button>
+        </template>
+      </div>
+
+      <div class="mt-4 grid gap-6 lg:grid-cols-2">
+        <div class="space-y-3">
+          <label class="block text-xs font-medium text-slate-500">O usuário tenta
+            <select x-model="ctx.acao" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+              <option value="editar">Editar o pedido</option>
+              <option value="cancelar">Cancelar o pedido</option>
+              <option value="autorizar">Autorizar o pedido</option>
+              <option value="separar">Separar os itens</option>
+              <option value="entregar">Confirmar a entrega</option>
+              <option value="entrada">Dar entrada fora de contrato</option>
+            </select>
+          </label>
+          <div x-show="acao.pedido" class="space-y-3">
+            <label class="block text-xs font-medium text-slate-500">O pedido foi feito por
+              <select x-model="ctx.autor" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <option value="eu">O próprio usuário</option>
+                <option value="colega">Um colega do mesmo setor</option>
+                <option value="outro">Alguém de outro setor</option>
+              </select>
+            </label>
+            <label class="block text-xs font-medium text-slate-500">Situação do pedido
+              <select x-model="ctx.status" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <template x-for="s in STATUS" :key="s[0]"><option :value="s[0]" :selected="ctx.status === s[0]" x-text="s[1]"></option></template>
+              </select>
+            </label>
+            <label x-show="ctx.acao === 'autorizar'" class="block text-xs font-medium text-slate-500">A etapa atual designa o setor ou perfil do usuário?
+              <select x-model="ctx.etapa" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+                <option value="sim">Sim</option>
+                <option value="nao">Não</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="rounded-xl border p-4" :class="permitido ? 'border-emerald-300 bg-emerald-50/50' : 'border-rose-300 bg-rose-50/50'">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-sm font-semibold" x-text="acao.label"></p>
+            <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="permitido ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'" x-text="permitido ? 'Permitido' : 'Negado'"></span>
+          </div>
+          <ul class="mt-3 space-y-2">
+            <template x-for="v in verificacoes" :key="v.txt">
+              <li class="flex items-start gap-2 text-sm">
+                <svg x-show="v.ok" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-emerald-600 stroke-[3]"><use href="#i-check"/></svg>
+                <svg x-show="!v.ok" class="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-rose-600 stroke-[3]"><use href="#i-x"/></svg>
+                <span class="min-w-0 flex-1" :class="v.ok ? 'text-slate-700' : 'font-medium text-rose-800'" x-text="v.txt"></span>
+                <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" :class="v.camada === 'Permissão' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'" x-text="v.camada"></span>
+              </li>
+            </template>
+          </ul>
+          <p x-show="!permitido" class="mt-3 text-sm text-rose-800">O sistema recusa com 403 e registra a tentativa. Primeiro motivo: <span x-text="motivo.toLowerCase()"></span>.</p>
+          <p x-show="nota" class="mt-3 text-xs text-slate-600" x-text="nota"></p>
+          <p class="mt-3 text-xs text-slate-500">Verificado em <code class="rounded bg-white px-1" x-text="acao.policy"></code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= SPATIE ================= -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Perfis por município (Spatie Permission com teams)</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+          <li>Os <strong>perfis</strong> são por tenant: a tabela <code class="rounded bg-slate-100 px-1 text-xs">roles</code> tem <code class="rounded bg-slate-100 px-1 text-xs">team_id</code> igual ao <code class="rounded bg-slate-100 px-1 text-xs">tenant_id</code>. Um município pode ajustar os seus sem afetar os outros.</li>
+          <li>As <strong>permissões</strong> são as mesmas para todos: são definidas pelo código, uma por ação do sistema, e ficam numa tabela global.</li>
+          <li>Os perfis são criados junto com o tenant, já com as permissões da matriz acima.</li>
+          <li>A atribuição de perfil ao usuário (<code class="rounded bg-slate-100 px-1 text-xs">model_has_roles</code>) também leva o tenant.</li>
+        </ul>
+        <pre class="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200">// middleware, depois de descobrir o tenant pelo subdomínio
+setPermissionsTeamId($tenant->id);
+
+// ao criar o tenant
+foreach (array_keys(PerfisPadrao::matriz()) as $nome) {
+    $perfil = Role::create(['name' => $nome]);
+    $perfil->syncPermissions(PerfisPadrao::matriz()[$nome]);
+}</pre>
+      </section>
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Onde cada coisa é decidida</h2>
+        <div class="mt-3 overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-xs font-medium text-slate-500"><tr><th class="py-2 pr-3">Pergunta</th><th class="py-2">Quem responde</th></tr></thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr><td class="py-2 pr-3">Este usuário pode abrir a tela de aprovação?</td><td class="py-2 text-xs text-slate-600"><span class="rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800">Permissão</span> no middleware da rota e no menu</td></tr>
+              <tr><td class="py-2 pr-3">Pode aprovar <em>este</em> pedido?</td><td class="py-2 text-xs text-slate-600"><span class="rounded bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800">Policy</span> do pedido: situação, autor, etapa</td></tr>
+              <tr><td class="py-2 pr-3">A saída passa da quantidade aprovada ou do saldo?</td><td class="py-2 text-xs text-slate-600">Classe de ação, na transação (e <code>CHECK</code> no banco)</td></tr>
+              <tr><td class="py-2 pr-3">Este pedido é de outro município?</td><td class="py-2 text-xs text-slate-600">Scope do tenant e Row-Level Security: nem chega a existir para o usuário</td></tr>
+              <tr><td class="py-2 pr-3">O módulo está ativo no município?</td><td class="py-2 text-xs text-slate-600">Middleware <code>modulo:&lt;nome&gt;</code>, antes da permissão</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre class="mt-3 max-h-56 overflow-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-emerald-200">public function autorizar(User $user, Pedido $pedido): bool
+{
+    return $user->can('pedidos.autorizar')
+        &amp;&amp; $pedido->status === StatusPedido::EnviadoParaAprovacao
+        &amp;&amp; $pedido->solicitante_id !== $user->id
+        &amp;&amp; $this->etapaAtualDesigna($pedido, $user);
+}</pre>
+      </section>
+    </div>
+
+    <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Perguntas para levar à SEMTRAS</h2>
+      <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
+        <li><strong>Estoque e Distribuição são pessoas diferentes?</strong> A análise trata os dois como o setor de Compras. Se for a mesma equipe, os dois perfis podem virar um.</li>
+        <li>O solicitante vê só os pedidos do seu setor ou também os que ele fez em outro setor onde já trabalhou?</li>
+        <li>Quem pode cancelar um pedido, e até quando? A matriz assume: o próprio solicitante, enquanto não houve entrega.</li>
+        <li>Quem recebe a permissão de entrada fora de contrato? Sugestão: o responsável do Estoque, concedida pelo Administrador, cada caso registrado na auditoria.</li>
+        <li>Quem faz o papel de Administrador no município? Ele não consta no PDF, mas alguém precisa cadastrar usuários e setores.</li>
+        <li>Os dois setores autorizadores (hoje “Setor A” e “Setor B”) ainda não foram definidos. A Policy já consulta a etapa configurada, então só falta saber quem são.</li>
+      </ol>
+    </section>
+
+    <p class="mt-8 text-xs text-slate-400">Perfis do PDF e o Administrador proposto · usuários e cenários fictícios · fonte: <code>docs/requisitos/analise-requisitos.md</code>, seções 2 e 7 (item 1). Configuração do fluxo de autorização em <code>docs/fluxos/00-configurador-autorizacao.html</code>.</p>
+  </div>
+</body>
+</html>

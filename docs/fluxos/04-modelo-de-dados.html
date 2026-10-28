@@ -87,7 +87,7 @@
           ['tenant_id', 'bigint', 'fk:tenants', 'team_id do Spatie Permission'],
           ['name', 'varchar'],
           ['guard_name', 'varchar'],
-        ], { pacote: 'spatie/laravel-permission, com teams ligado. As tabelas permissions e role_has_permissions seguem o pacote e também levam tenant_id.', unicos: ['(tenant_id, name, guard_name)'] }),
+        ], { pacote: 'spatie/laravel-permission, com teams ligado. Os perfis são por município; a tabela permissions é um catálogo global, definido pelo código, e role_has_permissions não leva tenant_id porque herda o do perfil. As duas ficam fora das 26 tabelas acima.', unicos: ['(tenant_id, name, guard_name)'] }),
         tbl('model_has_roles', 'nucleo', 'Quais perfis cada usuário tem. Um usuário pode acumular perfis.', [
           ['role_id', 'bigint', 'pk fk:roles'],
           ['tenant_id', 'bigint', 'pk fk:tenants', 'team_id do Spatie Permission'],
@@ -365,7 +365,7 @@
       <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Modelagem</p>
       <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Modelo de dados</h1>
       <p class="mt-4 max-w-3xl text-slate-300">
-        Um único banco PostgreSQL para todos os municípios. Toda tabela leva <code class="rounded bg-slate-800 px-1 text-emerald-300">tenant_id</code>, e o próprio banco só devolve as linhas do município da conexão (Row-Level Security). Escolha uma tabela para ver suas colunas, com quem ela se liga e o SQL de isolamento. Cada módulo tem as suas tabelas e só aponta para o núcleo; os vínculos entre módulos passam por eventos, não por chave estrangeira.
+        Um único banco PostgreSQL para todos os municípios. Toda tabela de dados leva <code class="rounded bg-slate-800 px-1 text-emerald-300">tenant_id</code>, e o próprio banco só devolve as linhas do município da conexão (Row-Level Security). Escolha uma tabela para ver suas colunas, com quem ela se liga e o SQL de isolamento. Cada módulo tem as suas tabelas e só aponta para o núcleo; os vínculos entre módulos passam por eventos, não por chave estrangeira.
       </p>
     </div>
   </header>

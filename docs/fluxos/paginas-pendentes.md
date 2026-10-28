@@ -11,14 +11,14 @@ Lista de trabalho das páginas de apresentação do projeto. Todas usam a mesma 
 | `fluxos/00-configurador-autorizacao.html` | Montagem do fluxo de autorização por município, com simulação de um pedido |
 | `fluxos/03-termos.html` | Termo de recebimento e termo de responsabilidade em A4, com as três formas de assinatura |
 | `fluxos/04-modelo-de-dados.html` | Diagrama navegável das 26 tabelas por módulo, com `tenant_id`, Row-Level Security, restrições e a conferência de que os módulos só se ligam ao núcleo |
+| `fluxos/05-perfis-e-permissoes.html` | Matriz de perfis e permissões, com montagem do usuário (perfis acumulados e permissão específica), menu resultante e teste de ações que separa o que é Permissão do que é Policy (segregação de funções) |
 
 ## Pendentes
 
-Ordem sugerida: 5, 4, 8, 7, 3, 9, 10. A 5 destrava as policies; a 9 é a maior e fica por último.
+Ordem sugerida: 4, 8, 7, 3, 9, 10. A 9 é a maior e fica por último.
 
 | # | Página | Para quê | Base nos documentos |
 |---|---|---|---|
-| 5 | **Perfis e permissões** | Matriz de quem pode o quê, com troca de perfil para ver as telas mudarem. Inclui a segregação de funções e a permissão específica de entrada fora de contrato | Seção 2 e seção 7, item 1 (Spatie Permission com *teams*) |
 | 4 | **Mapa de módulos e dependências** | Ligar e desligar módulos, com o sistema bloqueando combinações inválidas (ex.: Distribuição sem Pedidos) e mostrando o que some do menu e das telas | Seção 6, incluindo os riscos de telas que cruzam módulos |
 | 8 | **Máquina de estados do pedido** | Todos os status e as transições permitidas, com quem pode disparar cada uma | PDF (status do pedido) e seção 4 |
 | 7 | **Multi-tenant** | Dois municípios lado a lado, com módulos e configurações diferentes, mostrando que os dados de um não aparecem no outro | Seção 5 |
