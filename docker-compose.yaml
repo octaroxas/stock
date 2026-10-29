@@ -1,0 +1,30 @@
+# Stack de produção: nginx servindo as páginas estáticas de docs/fluxos.
+# Mesmo padrão do Doit e do Hidro Vision: o container não publica porta no host e é
+# alcançado só pela rede docker externa `npm` (Nginx Proxy Manager), que termina o HTTPS.
+# No NPM: Forward Hostname `stock-web`, porta 80, domínio stock.octacilio.dev.br.
+# Pré-requisito (uma vez por host): docker network create npm
+# Atualizar conteúdo: git pull (as páginas são montadas, sem rebuild nem restart).
+name: stock-prod
+
+services:
+  web:
+    image: nginx:alpine
+    container_name: stock-web
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx:/etc/nginx/templates:ro
+      - ./docs/fluxos:/usr/share/nginx/html:ro
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN:?defina WEB_DOMAIN no .env}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - npm
+
+networks:
+  npm:
+    external: true

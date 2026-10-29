@@ -1,0 +1,22 @@
+# Stack de desenvolvimento local no mesmo padrão do Doit: rede/containers com sufixo -dev
+# e porta do host configurável pelo .env da raiz. Edite docs/fluxos/*.html e recarregue o
+# navegador (sem cache). Subir: docker compose -f docker-compose.dev.yml up
+# O default 8080 não colide com as stacks de dev do Doit (8001, 3001) nem do Hidro Vision (8000).
+name: stock-dev
+
+services:
+  web:
+    image: nginx:alpine
+    container_name: stock-web-dev
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    volumes:
+      - ./docker/nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docs/fluxos:/usr/share/nginx/html:ro
+    networks:
+      - stock-dev
+
+networks:
+  stock-dev:
+    driver: bridge

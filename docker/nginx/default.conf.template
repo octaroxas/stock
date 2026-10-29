@@ -1,6 +1,6 @@
 server {
     listen 80;
-    server_name stock.octacilio.dev.br;
+    server_name ${WEB_DOMAIN};
 
     root /usr/share/nginx/html;
     index index.html;
