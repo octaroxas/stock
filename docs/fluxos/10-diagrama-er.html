@@ -354,9 +354,29 @@
       return {
         MOD, W, HEADER, ROW, tabelas: TABELAS,
         pos: layout(), z: 1, px: 0, py: 0, drag: null,
-        selId: '', mod: 'todos', busca: '', verRefs: true, verTenant: false, soSel: false,
+        cheia: false, selId: '', mod: 'todos', busca: '', verRefs: true, verTenant: false, soSel: false,
 
-        init() { this.$nextTick(() => this.ajustar()); },
+        init() {
+          this.$nextTick(() => this.ajustar());
+          // Esc (ou o botão do navegador) sai da tela cheia sem passar por sair().
+          document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && this.cheia) this.cheia = false;
+            setTimeout(() => this.ajustar(), 60);
+          });
+        },
+
+        // ---- tela cheia ----
+        // O cartão fixo cobre a página mesmo onde a Fullscreen API não existe (ex.: iPhone).
+        async entrarCheia() {
+          this.cheia = true;
+          try { await this.$refs.secao.requestFullscreen(); } catch (e) { /* sem a API, fica só o modo fixo */ }
+          this.$nextTick(() => this.ajustar());
+        },
+        async sairCheia() {
+          this.cheia = false;
+          try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* já saiu */ }
+          this.$nextTick(() => this.ajustar());
+        },
 
         // ---- tipos ----
         tipoCls(t) {
@@ -525,8 +545,9 @@
     </section>
 
     <!-- diagrama -->
-    <section class="relative mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div x-ref="vp" class="er-vp h-[78vh] min-h-[480px]" :class="drag && drag.moveu ? 'arrastando' : ''"
+    <section x-ref="secao" class="relative overflow-hidden border border-slate-200 bg-white shadow-sm"
+             :class="cheia ? 'fixed inset-0 z-50' : 'mt-4 rounded-2xl'">
+      <div x-ref="vp" class="er-vp" :class="[drag && drag.moveu ? 'arrastando' : '', cheia ? 'h-screen' : 'h-[78vh] min-h-[480px]']"
            :style="{ backgroundImage: 'radial-gradient(#cbd5e1 1.2px, transparent 1.2px)', backgroundSize: (20 * z) + 'px ' + (20 * z) + 'px', backgroundPosition: px + 'px ' + py + 'px' }"
            @pointerdown="iniciar($event)" @pointermove="mover($event)" @pointerup="soltar()" @pointercancel="soltar()" @wheel.prevent="roda($event)">
 
@@ -565,6 +586,10 @@
           <div class="er-ctl">
             <button type="button" class="er-btn" @click="ajustar()">Ajustar à tela</button>
             <button type="button" class="er-btn" @click="reorganizar()">Reorganizar</button>
+          </div>
+          <div class="er-ctl">
+            <button type="button" class="er-btn" x-show="!cheia" @click="entrarCheia()">Tela cheia</button>
+            <button type="button" class="er-btn" x-show="cheia" @click="sairCheia()">Voltar ao normal</button>
           </div>
         </div>
         <p class="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-white/90 px-3 py-1.5 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200">
