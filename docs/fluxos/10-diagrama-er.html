@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diagrama ER — Estoque e Pedidos</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    [x-cloak] { display: none !important; }
+
+    /* Área do diagrama: grade de pontos que acompanha o zoom e o arrasto. */
+    .er-vp { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; background-color: #fff; }
+    .er-vp.arrastando { cursor: grabbing; }
+    .er-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+    /* Cartão de tabela. Alturas fixas (barra 6 + título 30 + 28 por coluna): o desenho das linhas depende delas. */
+    .er-card { position: absolute; box-sizing: border-box; overflow: hidden; cursor: move; background: #f5f5f5; border: 1px solid #d4d4d8; border-radius: 6px; box-shadow: 0 2px 6px rgb(15 23 42 / .18); transition: opacity .15s, box-shadow .15s, border-color .15s; }
+    .er-card.sel { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f6, 0 6px 16px rgb(15 23 42 / .25); }
+    .er-card.rel { border-color: #14b8a6; box-shadow: 0 0 0 2px #5eead4, 0 4px 12px rgb(15 23 42 / .2); }
+    .er-bar { height: 6px; }
+    .er-head { box-sizing: border-box; height: 30px; padding: 0 10px; font-size: 13px; font-weight: 700; line-height: 30px; color: #1e293b; background: #fafafa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .er-row { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; font-size: 12px; color: #334155; border-top: 1px solid #e4e4e7; }
+    .er-dot { flex: none; box-sizing: border-box; width: 8px; height: 8px; border-radius: 9999px; background: #3b6fb6; }
+    .er-dot.fk { background: #fff; border: 2px solid #3b6fb6; }
+    .er-nome { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .er-nome.nulo { color: #94a3b8; }
+    .er-marcas { flex: none; display: flex; align-items: center; gap: 3px; }
+    .er-ico { width: 13px; height: 13px; fill: none; stroke: #94a3b8; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .er-tag { font-style: normal; font-size: 9px; font-weight: 700; line-height: 1; padding: 2px 3px; border-radius: 3px; color: #475569; background: #e2e8f0; }
+    .er-tag.ref { color: #92400e; background: #fef3c7; }
+    .er-q { font-style: normal; font-size: 12px; font-weight: 700; color: #94a3b8; }
+    .er-tipo { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 500; }
+    .t-num { color: #ca9a04; }
+    .t-txt { color: #ea580c; }
+    .t-bool { color: #7c3aed; }
+    .t-json { color: #db2777; }
+    .t-data { color: #0d9488; }
+
+    .er-ctl { display: flex; align-items: center; gap: 4px; padding: 4px; background: rgb(255 255 255 / .92); border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 1px 3px rgb(15 23 42 / .1); }
+    .er-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 8px; font-size: 12px; font-weight: 500; color: #475569; border-radius: 6px; }
+    .er-btn:hover { background: #f1f5f9; }
+  </style>
+
+  <script>
+    function er() {
+      const W = 300, BAR = 6, HEAD = 30, HEADER = BAR + HEAD, ROW = 28, PITCH = 440, GAP = 40;
+      const MOD = {
+        nucleo:       { nome: 'Núcleo',                  hex: '#475569' },
+        estoque:      { nome: 'Estoque',                 hex: '#0284c7' },
+        patrimonio:   { nome: 'Patrimônio',              hex: '#7c3aed' },
+        contratos:    { nome: 'Contratos e Recebimento', hex: '#0d9488' },
+        pedidos:      { nome: 'Pedidos e Autorização',   hex: '#4f46e5' },
+        distribuicao: { nome: 'Distribuição e Termos',   hex: '#db2777' },
+      };
+
+      // Mesmas tabelas de 04-modelo-de-dados.html. Cada coluna: [nome, tipo, marcadores, observação].
+      // Marcadores: pk · fk:tabela · ref:tabela (referência sem FK) · null.
+      const tbl = (id, modulo, desc, cols, opts = {}) => {
+        const lista = cols.map(([nome, tipo, fl = '', nota = '']) => {
+          const t = fl.split(' ').filter(Boolean);
+          const pick = p => (t.find(x => x.startsWith(p + ':')) || '').slice(p.length + 1);
+          return { nome, tipo, nota, pk: t.includes('pk'), nulo: t.includes('null'), fk: pick('fk'), ref: pick('ref') };
+        });
+        if (opts.tenant !== false && !lista.some(c => c.nome === 'tenant_id')) {
+          lista.splice(1, 0, { nome: 'tenant_id', tipo: 'bigint', nota: 'isola os dados do município', pk: false, nulo: false, fk: 'tenants', ref: '' });
+        }
+        return { id, modulo, desc, cols: lista };
+      };
+
+      const TABELAS = [
+        // ---------- Núcleo ----------
+        tbl('tenants', 'nucleo', 'O município. Dentro dele ficam a secretaria e os setores.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['subdominio', 'varchar', '', 'resolve o tenant na requisição'],
+          ['logo_path', 'varchar', 'null', 'logo dos termos'],
+          ['cabecalho_termos', 'text', 'null'],
+          ['configuracoes', 'jsonb', '', 'nº de autorizadores, numeração de pedidos e termos, exige_contrato'],
+          ['created_at', 'timestamptz'],
+        ], { tenant: false }),
+        tbl('tenant_modulos', 'nucleo', 'Quais módulos cada município tem ativos. Espaço reservado para licenciamento futuro.', [
+          ['id', 'bigint', 'pk'],
+          ['modulo', 'varchar', '', 'estoque · patrimonio · contratos · pedidos · distribuicao · relatorios'],
+          ['ativo', 'boolean', '', 'desativar esconde, não apaga'],
+          ['vigencia_ate', 'date', 'null', 'licenciamento futuro, sem cobrança no MVP'],
+          ['plano', 'varchar', 'null'],
+        ]),
+        tbl('setores', 'nucleo', 'Estrutura organizacional: a secretaria na raiz e os setores abaixo dela.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['setor_pai_id', 'bigint', 'fk:setores null', 'vazio na secretaria'],
+          ['ativo', 'boolean'],
+        ]),
+        tbl('users', 'nucleo', 'Usuários. Cada um pertence a um tenant.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['email', 'varchar'],
+          ['password', 'varchar'],
+          ['setor_id', 'bigint', 'fk:setores null'],
+          ['ativo', 'boolean'],
+          ['created_at', 'timestamptz'],
+        ]),
+        tbl('roles', 'nucleo', 'Perfis (Estoque, Solicitante, Gestor_autorizador, Distribuição), por município.', [
+          ['id', 'bigint', 'pk'],
+          ['tenant_id', 'bigint', 'fk:tenants', 'team_id do Spatie Permission'],
+          ['name', 'varchar'],
+          ['guard_name', 'varchar'],
+        ]),
+        tbl('model_has_roles', 'nucleo', 'Quais perfis cada usuário tem. Um usuário pode acumular perfis.', [
+          ['role_id', 'bigint', 'pk fk:roles'],
+          ['tenant_id', 'bigint', 'pk fk:tenants', 'team_id do Spatie Permission'],
+          ['model_type', 'varchar', 'pk'],
+          ['model_id', 'bigint', 'pk', 'id do usuário'],
+        ]),
+        tbl('categorias', 'nucleo', 'Agrupamento do catálogo.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+        ]),
+        tbl('itens', 'nucleo', 'Catálogo de itens, de consumo ou permanentes. É compartilhado por todos os módulos.', [
+          ['id', 'bigint', 'pk'],
+          ['categoria_id', 'bigint', 'fk:categorias null'],
+          ['codigo', 'varchar'],
+          ['nome', 'varchar'],
+          ['tipo', 'varchar', '', 'consumo · permanente'],
+          ['unidade', 'varchar', '', 'un, resma, caixa…'],
+          ['unidades_por_caixa', 'integer', '', 'caixa entra convertida: 1 caixa = 12 un, registra 12'],
+          ['estoque_minimo', 'integer', '', 'só consumo; alerta quando saldo ≤ mínimo'],
+          ['ativo', 'boolean'],
+        ]),
+        tbl('audits', 'nucleo', 'Registro de quem fez o quê, quando e com quais valores antes e depois. Sempre ativo.', [
+          ['id', 'bigint', 'pk'],
+          ['user_id', 'bigint', 'fk:users null', 'vazio para ações do sistema'],
+          ['event', 'varchar', '', 'created · updated · deleted · …'],
+          ['auditable_type', 'varchar'],
+          ['auditable_id', 'bigint'],
+          ['old_values', 'jsonb', 'null'],
+          ['new_values', 'jsonb', 'null'],
+          ['ip_address', 'inet', 'null'],
+          ['url', 'text', 'null'],
+          ['created_at', 'timestamptz', '', 'data e hora da ação'],
+        ]),
+
+        // ---------- Estoque ----------
+        tbl('estoque_saldos', 'estoque', 'Saldo atual de cada item de consumo.', [
+          ['id', 'bigint', 'pk'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['quantidade', 'integer', '', 'nunca negativa'],
+          ['updated_at', 'timestamptz'],
+        ]),
+        tbl('movimentacoes', 'estoque', 'Livro de entradas e saídas. O saldo é consequência dele.', [
+          ['id', 'bigint', 'pk'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['tipo', 'varchar', '', 'entrada · saida'],
+          ['origem', 'varchar', '', 'contrato · doacao · ajuste · saldo_inicial · pedido'],
+          ['quantidade', 'integer', '', 'em unidade padrão'],
+          ['saldo_apos', 'integer'],
+          ['referencia_tipo', 'varchar', 'null', 'recebimento_item ou entrega_item'],
+          ['referencia_id', 'bigint', 'ref:recebimento_itens|entrega_itens null', 'sem FK: o vínculo vem pelo evento'],
+          ['justificativa', 'text', 'null', 'obrigatória fora de contrato'],
+          ['user_id', 'bigint', 'fk:users'],
+          ['created_at', 'timestamptz'],
+        ]),
+
+        // ---------- Patrimônio ----------
+        tbl('bens', 'patrimonio', 'Cada bem permanente como unidade individual, com localização e responsável atuais.', [
+          ['id', 'bigint', 'pk'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['tombamento', 'varchar', '', 'nº de tombamento'],
+          ['descricao', 'varchar'],
+          ['situacao', 'varchar', '', 'ativo · baixado'],
+          ['setor_id', 'bigint', 'fk:setores', 'localização atual'],
+          ['responsavel_id', 'bigint', 'fk:users null', 'responsável atual'],
+          ['created_at', 'timestamptz'],
+        ]),
+        tbl('bem_historico', 'patrimonio', 'Todo o caminho do bem: de onde saiu, para onde foi e quem respondeu por ele.', [
+          ['id', 'bigint', 'pk'],
+          ['bem_id', 'bigint', 'fk:bens'],
+          ['tipo', 'varchar', '', 'tombamento · importacao · transferencia · devolucao · baixa'],
+          ['setor_origem_id', 'bigint', 'fk:setores null'],
+          ['setor_destino_id', 'bigint', 'fk:setores null'],
+          ['responsavel_id', 'bigint', 'fk:users null'],
+          ['referencia_tipo', 'varchar', 'null', 'ex.: termo de responsabilidade'],
+          ['referencia_id', 'bigint', 'ref:termos null', 'sem FK: o vínculo vem pelo evento'],
+          ['motivo', 'text', 'null', 'obrigatório na baixa'],
+          ['user_id', 'bigint', 'fk:users'],
+          ['created_at', 'timestamptz'],
+        ]),
+
+        // ---------- Contratos e Recebimento ----------
+        tbl('fornecedores', 'contratos', 'Quem fornece nos contratos de licitação.', [
+          ['id', 'bigint', 'pk'],
+          ['nome', 'varchar'],
+          ['cnpj', 'varchar'],
+        ]),
+        tbl('contratos', 'contratos', 'Processo, contrato ou ata de registro de preços.', [
+          ['id', 'bigint', 'pk'],
+          ['fornecedor_id', 'bigint', 'fk:fornecedores'],
+          ['tipo', 'varchar', '', 'contrato · ata'],
+          ['processo', 'varchar'],
+          ['numero', 'varchar'],
+          ['vigencia_inicio', 'date'],
+          ['vigencia_fim', 'date'],
+          ['status', 'varchar', '', 'vigente · encerrado'],
+        ]),
+        tbl('contrato_itens', 'contratos', 'Itens contratados, com a quantidade e o saldo a receber.', [
+          ['id', 'bigint', 'pk'],
+          ['contrato_id', 'bigint', 'fk:contratos'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['qtd_contratada', 'integer'],
+          ['qtd_recebida', 'integer', '', 'saldo a receber = contratada − recebida'],
+        ]),
+        tbl('recebimentos', 'contratos', 'Conferência de uma entrega do fornecedor, com a nota fiscal.', [
+          ['id', 'bigint', 'pk'],
+          ['contrato_id', 'bigint', 'fk:contratos'],
+          ['nota_fiscal', 'varchar'],
+          ['data_nota', 'date'],
+          ['conferido_por', 'bigint', 'fk:users'],
+          ['conferido_em', 'timestamptz'],
+        ]),
+        tbl('recebimento_itens', 'contratos', 'O que foi conferido em cada recebimento. Cada linha publica o evento “item recebido”.', [
+          ['id', 'bigint', 'pk'],
+          ['recebimento_id', 'bigint', 'fk:recebimentos'],
+          ['contrato_item_id', 'bigint', 'fk:contrato_itens'],
+          ['quantidade', 'integer', '', 'em unidade padrão'],
+        ]),
+
+        // ---------- Pedidos e Autorização ----------
+        tbl('pedidos', 'pedidos', 'Cabeçalho do pedido de um setor.', [
+          ['id', 'bigint', 'pk'],
+          ['numero', 'varchar', '', 'ex.: 2026/000087'],
+          ['setor_id', 'bigint', 'fk:setores'],
+          ['solicitante_id', 'bigint', 'fk:users'],
+          ['status', 'varchar', '', 'rascunho · enviado_para_aprovacao · aprovado · reprovado · parcialmente_atendido · atendido · cancelado'],
+          ['enviado_em', 'timestamptz', 'null'],
+          ['created_at', 'timestamptz'],
+        ]),
+        tbl('pedido_itens', 'pedidos', 'Itens do pedido, com as três quantidades: solicitada, aprovada e distribuída.', [
+          ['id', 'bigint', 'pk'],
+          ['pedido_id', 'bigint', 'fk:pedidos'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['qtd_solicitada', 'integer'],
+          ['qtd_aprovada', 'integer', 'null', 'vazia até a autorização'],
+          ['qtd_distribuida', 'integer', '', 'começa em 0'],
+        ]),
+        tbl('autorizacoes', 'pedidos', 'Cada decisão de um aprovador em uma etapa de um pedido, com o setor dele no momento.', [
+          ['id', 'bigint', 'pk'],
+          ['pedido_id', 'bigint', 'fk:pedidos'],
+          ['etapa_id', 'bigint', 'fk:fluxo_etapas'],
+          ['aprovador_id', 'bigint', 'fk:users', 'a action recusa se for o solicitante'],
+          ['setor_id', 'bigint', 'fk:setores', 'setor do aprovador na hora da decisão'],
+          ['decisao', 'varchar', '', 'aprovado_total · aprovado_parcial · reprovado'],
+          ['motivo', 'text', 'null'],
+          ['decidido_em', 'timestamptz'],
+        ]),
+        tbl('fluxo_etapas', 'pedidos', 'Etapas de autorização configuradas pelo município, em ordem.', [
+          ['id', 'bigint', 'pk'],
+          ['ordem', 'integer'],
+          ['titulo', 'varchar'],
+          ['escopo', 'varchar', '', 'todos · consumo · permanente'],
+          ['regra', 'varchar', '', 'qualquer · todos'],
+        ]),
+        tbl('fluxo_etapa_aprovadores', 'pedidos', 'Quem aprova cada etapa: um setor ou um perfil.', [
+          ['id', 'bigint', 'pk'],
+          ['etapa_id', 'bigint', 'fk:fluxo_etapas'],
+          ['setor_id', 'bigint', 'fk:setores null'],
+          ['role_id', 'bigint', 'fk:roles null'],
+        ]),
+
+        // ---------- Distribuição e Termos ----------
+        tbl('entregas', 'distribuicao', 'Separação e entrega de um pedido autorizado.', [
+          ['id', 'bigint', 'pk'],
+          ['pedido_id', 'bigint', 'fk:pedidos'],
+          ['status', 'varchar', '', 'em_separacao · entregue'],
+          ['separado_por', 'bigint', 'fk:users'],
+          ['entregue_por', 'bigint', 'fk:users null'],
+          ['recebedor_id', 'bigint', 'fk:users null', 'em aberto: nem sempre quem recebe tem login'],
+          ['recebedor_nome', 'varchar', 'null', 'preenchido quando não há usuário'],
+          ['entregue_em', 'timestamptz', 'null'],
+        ]),
+        tbl('entrega_itens', 'distribuicao', 'O que saiu em cada entrega. Para bens permanentes, aponta o bem entregue.', [
+          ['id', 'bigint', 'pk'],
+          ['entrega_id', 'bigint', 'fk:entregas'],
+          ['pedido_item_id', 'bigint', 'fk:pedido_itens'],
+          ['item_id', 'bigint', 'fk:itens'],
+          ['bem_id', 'bigint', 'ref:bens null', 'sem FK: Patrimônio recebe o bem pelo evento'],
+          ['quantidade', 'integer'],
+        ]),
+        tbl('termos', 'distribuicao', 'Termo de recebimento ou de responsabilidade, com a forma de assinatura.', [
+          ['id', 'bigint', 'pk'],
+          ['entrega_id', 'bigint', 'fk:entregas'],
+          ['tipo', 'varchar', '', 'recebimento · responsabilidade'],
+          ['numero', 'varchar'],
+          ['forma_assinatura', 'varchar', 'null', 'em aberto: impresso · eletronico'],
+          ['arquivo_path', 'varchar', 'null', 'escaneado, quando impresso'],
+          ['gerado_em', 'timestamptz'],
+          ['assinado_em', 'timestamptz', 'null'],
+        ]),
+      ];
+
+      const porId = Object.fromEntries(TABELAS.map(t => [t.id, t]));
+      const altura = t => HEADER + ROW * t.cols.length;
+
+      // Uma ligação por FK (n → 1, linha cheia) e uma por tabela citada numa referência sem FK (tracejada).
+      const LIGACOES = [
+        ...TABELAS.flatMap(t => t.cols.filter(c => c.fk).map(c => ({ de: t.id, col: c.nome, para: c.fk, tenant: c.nome === 'tenant_id', ref: false }))),
+        ...TABELAS.flatMap(t => t.cols.filter(c => c.ref).flatMap(c => c.ref.split('|').map(p => ({ de: t.id, col: c.nome, para: p, tenant: false, ref: true })))),
+      ];
+      const FKS = LIGACOES.filter(l => !l.ref && !l.tenant);
+      const REFS = TABELAS.flatMap(t => t.cols.filter(c => c.ref).map(c => ({ de: t.id, col: c.nome, para: c.ref })));
+
+      // Colunas do desenho, da esquerda para a direita; cada coluna é centralizada na vertical.
+      const COLUNAS = [
+        ['tenants', 'tenant_modulos', 'roles', 'model_has_roles'],
+        ['setores', 'users', 'audits'],
+        ['categorias', 'itens', 'estoque_saldos', 'movimentacoes'],
+        ['bens', 'bem_historico'],
+        ['fornecedores', 'contratos', 'contrato_itens', 'recebimentos', 'recebimento_itens'],
+        ['pedidos', 'pedido_itens', 'autorizacoes', 'fluxo_etapas', 'fluxo_etapa_aprovadores'],
+        ['entregas', 'entrega_itens', 'termos'],
+      ];
+      const layout = () => {
+        const alturas = COLUNAS.map(ids => ids.reduce((s, id) => s + altura(porId[id]), 0) + GAP * (ids.length - 1));
+        const maior = Math.max(...alturas);
+        const p = {};
+        COLUNAS.forEach((ids, c) => {
+          let y = (maior - alturas[c]) / 2;
+          ids.forEach(id => { p[id] = { x: c * PITCH, y }; y += altura(porId[id]) + GAP; });
+        });
+        return p;
+      };
+
+      // Caminho ortogonal com cantos arredondados.
+      const arredondado = (pts, r = 10) => {
+        let d = `M${pts[0][0]},${pts[0][1]}`;
+        for (let i = 1; i < pts.length - 1; i++) {
+          const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], [x2, y2] = pts[i + 1];
+          const l1 = Math.hypot(x1 - x0, y1 - y0), l2 = Math.hypot(x2 - x1, y2 - y1);
+          const rr = Math.min(r, l1 / 2, l2 / 2);
+          if (rr < 0.5) { d += ` L${x1},${y1}`; continue; }
+          d += ` L${x1 - (x1 - x0) / l1 * rr},${y1 - (y1 - y0) / l1 * rr} Q${x1},${y1} ${x1 + (x2 - x1) / l2 * rr},${y1 + (y2 - y1) / l2 * rr}`;
+        }
+        const u = pts[pts.length - 1];
+        return d + ` L${u[0]},${u[1]}`;
+      };
+
+      return {
+        MOD, W, HEADER, ROW, tabelas: TABELAS,
+        pos: layout(), z: 1, px: 0, py: 0, drag: null,
+        selId: '', mod: 'todos', busca: '', verRefs: true, verTenant: false, soSel: false,
+
+        init() { this.$nextTick(() => this.ajustar()); },
+
+        // ---- tipos ----
+        tipoCls(t) {
+          if (t === 'bigint' || t === 'integer') return 't-num';
+          if (t === 'varchar' || t === 'text') return 't-txt';
+          if (t === 'boolean') return 't-bool';
+          if (t === 'jsonb') return 't-json';
+          return 't-data';
+        },
+
+        // ---- destaque e filtros ----
+        ativa(t) {
+          const q = this.busca.trim().toLowerCase();
+          return (this.mod === 'todos' || t.modulo === this.mod) && (!q || t.id.includes(q) || t.cols.some(c => c.nome.includes(q)));
+        },
+        get selT() { return this.selId ? porId[this.selId] : null; },
+        get vizinhas() {
+          const s = this.selId;
+          return new Set(s ? [...FKS, ...LIGACOES.filter(l => l.ref)].flatMap(l => l.de === s ? [l.para] : l.para === s ? [l.de] : []) : []);
+        },
+        classe(t) { return t.id === this.selId ? 'sel' : (this.vizinhas.has(t.id) ? 'rel' : ''); },
+        opac(t) {
+          if (this.selId && t.id !== this.selId && !this.vizinhas.has(t.id)) return 0.35;
+          return this.ativa(t) ? 1 : 0.25;
+        },
+        get saindo() { return [...new Set(FKS.filter(f => f.de === this.selId).map(f => f.para))].map(id => porId[id]); },
+        get entrando() { return [...new Set(FKS.filter(f => f.para === this.selId).map(f => f.de))].map(id => porId[id]); },
+        get refsSel() { return REFS.filter(r => r.de === this.selId); },
+        get refsRecebidas() { return REFS.filter(r => r.para.split('|').includes(this.selId)); },
+        contaModulo(id) { return TABELAS.filter(t => t.modulo === id).length; },
+
+        // ---- linhas e cardinalidade ----
+        get svgLinhas() {
+          const s = this.selId;
+          const desenhar = [];
+          LIGACOES.forEach((l, i) => {
+            if ((l.tenant && !this.verTenant) || (l.ref && !this.verRefs)) return;
+            const lig = !!s && (l.de === s || l.para === s);
+            if (this.soSel && s && !lig) return;
+            const a = this.pos[l.de], b = this.pos[l.para], ta = porId[l.de];
+            const sy = a.y + HEADER + ta.cols.findIndex(c => c.nome === l.col) * ROW + ROW / 2;
+            const ty = b.y + HEADER + ROW / 2;
+            const folga = (i * 3) % 7;
+            let sx, tx, xm, saida, entrada;
+            if (a.x + W + 60 <= b.x) {            // alvo à direita: sai pela direita, entra pela esquerda
+              sx = a.x + W; tx = b.x; saida = 1; entrada = -1;
+              xm = Math.max(sx + 20, Math.min(tx - 30 - folga * 6, tx - 20));
+            } else if (b.x + W + 60 <= a.x) {     // alvo à esquerda
+              sx = a.x; tx = b.x + W; saida = -1; entrada = 1;
+              xm = Math.min(sx - 20, Math.max(tx + 30 + folga * 6, tx + 20));
+            } else {                              // mesma coluna (ou o próprio cartão): contorna pela direita
+              sx = a.x + W; tx = b.x + W; saida = 1; entrada = 1;
+              xm = Math.max(sx, tx) + 30 + folga * 8;
+            }
+            desenhar.push({ l, lig, d: arredondado([[sx, sy], [xm, sy], [xm, ty], [tx, ty]]), n: [sx + saida * 14, sy], um: [tx + entrada * 14, ty] });
+          });
+          desenhar.sort((x, y) => x.lig - y.lig); // as destacadas por cima
+          const bolha = ([x, y], txt, cor) => `<circle cx="${x}" cy="${y}" r="9" fill="${cor}"/><text x="${x}" y="${y}" fill="#fff" font-size="11" font-weight="700" text-anchor="middle" dominant-baseline="central" font-family="Inter, sans-serif">${txt}</text>`;
+          return desenhar.map(({ l, lig, d, n, um }) => {
+            const cor = lig ? '#0f766e' : (l.ref ? '#b45309' : '#6b7280');
+            const op = s ? (lig ? 1 : 0.2) : ((this.ativa(porId[l.de]) || this.ativa(porId[l.para])) ? 1 : 0.15);
+            return `<g opacity="${op}"><path d="${d}" fill="none" stroke="${cor}" stroke-width="${lig ? 2.5 : 1.75}"${l.ref ? ' stroke-dasharray="6 5"' : ''}/>${bolha(n, 'n', cor)}${bolha(um, '1', cor)}</g>`;
+          }).join('');
+        },
+
+        // ---- navegação: arrastar, rolar e aproximar ----
+        iniciar(e) {
+          if (e.button !== 0) return;
+          const id = e.target.closest('[data-t]')?.dataset.t || '';
+          this.drag = { id, sx: e.clientX, sy: e.clientY, ox: id ? this.pos[id].x : this.px, oy: id ? this.pos[id].y : this.py, moveu: false };
+          this.$refs.vp.setPointerCapture(e.pointerId);
+        },
+        mover(e) {
+          const d = this.drag;
+          if (!d) return;
+          const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+          if (!d.moveu && Math.hypot(dx, dy) < 4) return;
+          d.moveu = true;
+          if (d.id) { this.pos[d.id].x = d.ox + dx / this.z; this.pos[d.id].y = d.oy + dy / this.z; }
+          else { this.px = d.ox + dx; this.py = d.oy + dy; }
+        },
+        soltar() {
+          const d = this.drag;
+          this.drag = null;
+          if (d && !d.moveu) this.selId = d.id && d.id !== this.selId ? d.id : '';
+        },
+        roda(e) {
+          if (e.ctrlKey || e.metaKey) {
+            const r = this.$refs.vp.getBoundingClientRect();
+            this.zoomEm(this.z * Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
+          } else { this.px -= e.deltaX; this.py -= e.deltaY; }
+        },
+        zoomEm(nz, cx, cy) {
+          nz = Math.min(2, Math.max(0.15, nz));
+          this.px = cx - (cx - this.px) * (nz / this.z);
+          this.py = cy - (cy - this.py) * (nz / this.z);
+          this.z = nz;
+        },
+        zoomBotao(f) { const v = this.$refs.vp; this.zoomEm(this.z * f, v.clientWidth / 2, v.clientHeight / 2); },
+        ajustar() {
+          const v = this.$refs.vp, ts = TABELAS.map(t => ({ ...this.pos[t.id], h: altura(t) }));
+          const x0 = Math.min(...ts.map(t => t.x)), x1 = Math.max(...ts.map(t => t.x + W));
+          const y0 = Math.min(...ts.map(t => t.y)), y1 = Math.max(...ts.map(t => t.y + t.h));
+          const pad = 40;
+          this.z = Math.min(1, (v.clientWidth - pad * 2) / (x1 - x0), (v.clientHeight - pad * 2) / (y1 - y0));
+          this.px = (v.clientWidth - (x1 - x0) * this.z) / 2 - x0 * this.z;
+          this.py = (v.clientHeight - (y1 - y0) * this.z) / 2 - y0 * this.z;
+        },
+        reorganizar() { this.pos = layout(); this.$nextTick(() => this.ajustar()); },
+        focar(id) {
+          this.selId = id;
+          const v = this.$refs.vp, p = this.pos[id];
+          if (this.z < 0.7) this.z = 0.8;
+          this.px = v.clientWidth / 2 - (p.x + W / 2) * this.z;
+          this.py = v.clientHeight / 2 - (p.y + altura(porId[id]) / 2) * this.z;
+        },
+        buscar() {
+          const t = TABELAS.find(x => this.ativa(x));
+          if (t && this.busca.trim()) this.focar(t.id);
+        },
+      };
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="bg-slate-50 font-sans text-slate-800 antialiased" x-data="er()" x-cloak @keydown.escape.window="selId = ''">
+
+  <svg class="hidden" aria-hidden="true">
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l3 3M14 9l2 2"/></symbol>
+  </svg>
+
+  <header class="bg-slate-900 px-4 pb-14 pt-10 text-white sm:px-6">
+    <div class="mx-auto max-w-[1600px]">
+      <p class="text-sm font-medium uppercase tracking-widest text-emerald-400">SEMTRAS · Santarém · Modelagem</p>
+      <h1 class="mt-3 max-w-3xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">Diagrama entidade-relacionamento</h1>
+      <p class="mt-4 max-w-3xl text-slate-300">
+        As 26 tabelas do modelo de dados desenhadas como cartões, com chave primária, chaves estrangeiras e tipos. Cada linha sai da coluna que guarda a chave (<strong class="font-semibold text-white">n</strong>) e chega ao <code class="rounded bg-slate-800 px-1 text-emerald-300">id</code> da tabela de origem (<strong class="font-semibold text-white">1</strong>). A cor da barra no topo mostra o módulo. As colunas e restrições de cada tabela estão em <a href="/04-modelo-de-dados" class="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">Modelo de dados</a>.
+      </p>
+    </div>
+  </header>
+
+  <div class="mx-auto -mt-8 max-w-[1600px] px-4 pb-20 sm:px-6">
+
+    <!-- filtros -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" @click="mod = 'todos'" class="rounded-full px-3 py-1 text-sm font-medium ring-1 transition"
+                :class="mod === 'todos' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'">Todos</button>
+        <template x-for="(m, id) in MOD" :key="id">
+          <button type="button" @click="mod = id" class="flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ring-1 transition"
+                  :class="mod === id ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'">
+            <span class="h-2 w-2 rounded-full" :style="{ background: m.hex }"></span>
+            <span x-text="m.nome"></span>
+            <span class="text-xs opacity-60" x-text="contaModulo(id)"></span>
+          </button>
+        </template>
+        <input type="search" x-model="busca" @keydown.enter="buscar()" placeholder="Buscar tabela ou coluna (Enter foca)" aria-label="Buscar tabela ou coluna"
+               class="ml-auto w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm sm:w-72">
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-600">
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="soSel" class="rounded border-slate-300"> Só as ligações da tabela escolhida</label>
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="verRefs" class="rounded border-slate-300"> Referências sem FK (tracejadas)</label>
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="verTenant" class="rounded border-slate-300"> Ligações do <code class="rounded bg-slate-100 px-1 text-xs">tenant_id</code> com <code class="rounded bg-slate-100 px-1 text-xs">tenants</code></label>
+      </div>
+    </section>
+
+    <!-- diagrama -->
+    <section class="relative mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div x-ref="vp" class="er-vp h-[78vh] min-h-[480px]" :class="drag && drag.moveu ? 'arrastando' : ''"
+           :style="{ backgroundImage: 'radial-gradient(#cbd5e1 1.2px, transparent 1.2px)', backgroundSize: (20 * z) + 'px ' + (20 * z) + 'px', backgroundPosition: px + 'px ' + py + 'px' }"
+           @pointerdown="iniciar($event)" @pointermove="mover($event)" @pointerup="soltar()" @pointercancel="soltar()" @wheel.prevent="roda($event)">
+
+        <div class="er-world" :style="{ transform: 'translate(' + px + 'px,' + py + 'px) scale(' + z + ')' }">
+          <svg class="pointer-events-none absolute left-0 top-0" width="1" height="1" style="overflow: visible" aria-hidden="true"><g x-html="svgLinhas"></g></svg>
+
+          <template x-for="t in tabelas" :key="t.id">
+            <div class="er-card" :data-t="t.id" :class="classe(t)"
+                 :style="{ left: pos[t.id].x + 'px', top: pos[t.id].y + 'px', width: W + 'px', opacity: opac(t) }">
+              <div class="er-bar" :style="{ background: MOD[t.modulo].hex }"></div>
+              <div class="er-head" :title="t.desc" x-text="t.id"></div>
+              <template x-for="c in t.cols" :key="c.nome">
+                <div class="er-row" :title="c.nota ? c.nome + ': ' + c.nota : c.nome">
+                  <span class="er-dot" :class="c.fk ? 'fk' : ''"></span>
+                  <span class="er-nome" :class="c.nulo ? 'nulo' : ''" x-text="c.nome"></span>
+                  <span class="er-marcas">
+                    <svg x-show="c.pk" class="er-ico"><use href="#i-key"/></svg>
+                    <i x-show="c.fk" class="er-tag">FK</i>
+                    <i x-show="c.ref" class="er-tag ref">ref</i>
+                    <i x-show="c.nulo" class="er-q">?</i>
+                  </span>
+                  <span class="er-tipo" :class="tipoCls(c.tipo)" x-text="c.tipo.toUpperCase()"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- controles -->
+        <div class="absolute left-3 top-3 flex flex-wrap gap-2" @pointerdown.stop @wheel.stop>
+          <div class="er-ctl">
+            <button type="button" class="er-btn" @click="zoomBotao(1 / 1.25)" aria-label="Afastar">−</button>
+            <span class="w-12 text-center text-xs tabular-nums text-slate-600" x-text="Math.round(z * 100) + '%'"></span>
+            <button type="button" class="er-btn" @click="zoomBotao(1.25)" aria-label="Aproximar">+</button>
+          </div>
+          <div class="er-ctl">
+            <button type="button" class="er-btn" @click="ajustar()">Ajustar à tela</button>
+            <button type="button" class="er-btn" @click="reorganizar()">Reorganizar</button>
+          </div>
+        </div>
+        <p class="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-white/90 px-3 py-1.5 text-xs text-slate-500 shadow-sm ring-1 ring-slate-200">
+          Arraste o fundo ou a rolagem para mover · Ctrl + rolagem aproxima · arraste um cartão para reposicioná-lo · clique para ver as ligações · Esc limpa
+        </p>
+      </div>
+    </section>
+
+    <!-- tabela escolhida + legenda -->
+    <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p x-show="!selT" class="text-sm text-slate-500">Clique em uma tabela para destacar o que ela referencia e quem a referencia, ou busque pelo nome acima.</p>
+        <div x-show="selT">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="font-mono text-lg font-semibold text-slate-900" x-text="selT?.id"></h2>
+            <span class="flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+              <span class="h-2 w-2 rounded-full" :style="{ background: selT ? MOD[selT.modulo].hex : '' }"></span><span x-text="selT ? MOD[selT.modulo].nome : ''"></span>
+            </span>
+          </div>
+          <p class="mt-1 text-sm text-slate-600" x-text="selT?.desc"></p>
+
+          <div class="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p class="text-xs font-medium text-slate-500">Aponta para (n → 1)</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <template x-for="t in saindo" :key="t.id">
+                  <button type="button" @click="focar(t.id)" class="flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-xs ring-1 ring-slate-200 hover:bg-slate-50">
+                    <span class="h-1.5 w-1.5 rounded-full" :style="{ background: MOD[t.modulo].hex }"></span><span x-text="t.id"></span>
+                  </button>
+                </template>
+                <span x-show="!saindo.length" class="text-xs text-slate-400">ninguém</span>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs font-medium text-slate-500">Quem aponta para ela (1 ← n)</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <template x-for="t in entrando" :key="t.id">
+                  <button type="button" @click="focar(t.id)" class="flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-xs ring-1 ring-slate-200 hover:bg-slate-50">
+                    <span class="h-1.5 w-1.5 rounded-full" :style="{ background: MOD[t.modulo].hex }"></span><span x-text="t.id"></span>
+                  </button>
+                </template>
+                <span x-show="!entrando.length" class="text-xs text-slate-400">ninguém</span>
+              </div>
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-slate-500">O <code>tenant_id</code> aponta para <code>tenants</code> em todas as tabelas e só aparece no desenho se a opção acima estiver marcada.</p>
+
+          <template x-for="r in refsSel" :key="r.col">
+            <p class="mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-600">
+              <span class="font-mono font-semibold" x-text="r.col"></span> guarda o id de <span class="font-mono" x-text="r.para.replace('|', ' ou ')"></span>, mas <strong>sem chave estrangeira</strong>: é de outro módulo, e o vínculo é feito pelo evento.
+            </p>
+          </template>
+          <template x-for="r in refsRecebidas" :key="r.de + r.col">
+            <p class="mt-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-600">
+              <span class="font-mono" x-text="r.de"></span>.<span class="font-mono font-semibold" x-text="r.col"></span> guarda o id desta tabela, <strong>sem chave estrangeira</strong>.
+            </p>
+          </template>
+
+          <div x-show="selT && selT.cols.some(c => c.nota)" class="mt-3">
+            <p class="text-xs font-medium text-slate-500">Observações das colunas</p>
+            <ul class="mt-1 space-y-0.5 text-xs text-slate-600">
+              <template x-for="c in (selT ? selT.cols.filter(c => c.nota) : [])" :key="c.nome">
+                <li><span class="font-mono font-semibold text-slate-800" x-text="c.nome"></span> — <span x-text="c.nota"></span></li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-900">Como ler o diagrama</h2>
+        <ul class="mt-3 space-y-2 text-sm text-slate-700">
+          <li class="flex items-center gap-2"><svg class="er-ico shrink-0"><use href="#i-key"/></svg><span>Chave primária.</span></li>
+          <li class="flex items-center gap-2"><span class="er-dot fk shrink-0"></span><span>Coluna com chave estrangeira (<span class="er-tag">FK</span>). A linha vai até o <code class="rounded bg-slate-100 px-1 text-xs">id</code> da outra tabela.</span></li>
+          <li class="flex items-center gap-2"><span class="er-q w-3 shrink-0 text-center">?</span><span>Aceita vazio. O nome da coluna fica em cinza.</span></li>
+          <li class="flex items-center gap-2">
+            <svg class="shrink-0" width="44" height="18" aria-hidden="true"><line x1="0" y1="9" x2="44" y2="9" stroke="#6b7280" stroke-width="1.75"/><circle cx="9" cy="9" r="8" fill="#6b7280"/><circle cx="35" cy="9" r="8" fill="#6b7280"/><text x="9" y="9" fill="#fff" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">n</text><text x="35" y="9" fill="#fff" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">1</text></svg>
+            <span>Muitas linhas da tabela de origem para uma da tabela apontada.</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <svg class="shrink-0" width="44" height="18" aria-hidden="true"><line x1="0" y1="9" x2="44" y2="9" stroke="#b45309" stroke-width="1.75" stroke-dasharray="6 5"/></svg>
+            <span>Referência <strong>sem FK</strong> entre módulos <span class="er-tag ref">ref</span>: o vínculo vem pelo evento.</span>
+          </li>
+        </ul>
+        <p class="mt-4 text-xs font-medium text-slate-500">Cores dos tipos</p>
+        <p class="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs">
+          <span class="t-num">BIGINT · INTEGER</span><span class="t-txt">VARCHAR · TEXT</span><span class="t-bool">BOOLEAN</span><span class="t-json">JSONB</span><span class="t-data">DATE · TIMESTAMPTZ · INET</span>
+        </p>
+      </section>
+    </div>
+
+    <p class="mt-8 text-xs text-slate-400">Modelo proposto, a validar na criação das migrations · nenhum dado real · mesmas tabelas de <code>docs/fluxos/04-modelo-de-dados.html</code>; as tabelas <code>permissions</code> e <code>role_has_permissions</code> do Spatie ficam de fora, como lá.</p>
+  </div>
+</body>
+</html>

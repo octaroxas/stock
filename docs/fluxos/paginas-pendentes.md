@@ -11,6 +11,7 @@ Lista de trabalho das páginas de apresentação do projeto. Todas usam a mesma 
 | `fluxos/00-configurador-autorizacao.html` | Montagem do fluxo de autorização por município, com simulação de um pedido |
 | `fluxos/03-termos.html` | Termo de recebimento e termo de responsabilidade em A4, com as três formas de assinatura |
 | `fluxos/04-modelo-de-dados.html` | Diagrama navegável das 26 tabelas por módulo, com `tenant_id`, Row-Level Security, restrições e a conferência de que os módulos só se ligam ao núcleo |
+| `fluxos/10-diagrama-er.html` | Diagrama entidade-relacionamento das 26 tabelas em cartões, com FKs ligando coluna a `id` (n → 1), referências sem FK tracejadas, zoom, arraste, filtro por módulo e destaque das ligações da tabela escolhida |
 | `fluxos/05-perfis-e-permissoes.html` | Matriz de perfis e permissões, com montagem do usuário (perfis acumulados e permissão específica), menu resultante e teste de ações que separa o que é Permissão do que é Policy (segregação de funções) |
 | `fluxos/06-mapa-de-modulos.html` | Liga e desliga os módulos, com o sistema bloqueando combinações inválidas (nos dois sentidos), o diagrama de dependências, o que some do menu, o comportamento das telas que cruzam módulos e os eventos entre módulos |
 | `fluxos/07-maquina-de-estados-do-pedido.html` | Os sete status e as transições permitidas, com quem dispara cada uma (permissão, Policy e módulo ligado), simulação de um pedido do rascunho à entrega e o mapa no código |
