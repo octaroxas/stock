@@ -15,7 +15,7 @@ Lista de trabalho das páginas de apresentação do projeto. Todas usam a mesma 
 | `fluxos/06-mapa-de-modulos.html` | Liga e desliga os módulos, com o sistema bloqueando combinações inválidas (nos dois sentidos), o diagrama de dependências, o que some do menu, o comportamento das telas que cruzam módulos e os eventos entre módulos |
 | `fluxos/07-maquina-de-estados-do-pedido.html` | Os sete status e as transições permitidas, com quem dispara cada uma (permissão, Policy e módulo ligado), simulação de um pedido do rascunho à entrega e o mapa no código |
 | `fluxos/08-multi-tenant.html` | Santarém e um município fictício lado a lado (módulos, etapas, numeração, termos), o mesmo banco visto de cada um com as barreiras do global scope, do RLS e da FK composta ligáveis, cinco tentativas de acesso cruzado e o código do trait, do middleware e da policy |
-| `fluxos/09-fluxo-geral.html` | Fluxo da solicitação à assinatura do termo em raias (setor solicitante, NSUAS 1, NSUAS 2, Setor de Compras e sistema), com simulação de um pedido (aprovação total, parcial ou reprovação) que move o diagrama, o pedido e o estoque (físico, reservado, disponível e em posse do setor), histórico e pontos a confirmar |
+| `fluxos/09-fluxo-geral.html` | Fluxo da solicitação à assinatura do termo em raias (setor solicitante, NSUAS 1 e NSUAS 2 na mesma raia como caixa de entrada em que basta um veredito, Setor de Compras e sistema), com simulação de um pedido (aprovação total, parcial ou reprovação, registrando usuário, setor, data e hora) que move o diagrama, o pedido e o estoque (físico, reservado, disponível e em posse do setor), histórico e pontos a confirmar |
 
 ## Pendentes
 
