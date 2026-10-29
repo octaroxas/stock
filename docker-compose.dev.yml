@@ -1,0 +1,9 @@
+# Dev: docker compose -f docker-compose.dev.yml up — http://localhost:8080 — edite docs/fluxos/*.html e recarregue o navegador.
+services:
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docs/fluxos:/usr/share/nginx/html:ro
+      - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
