@@ -237,12 +237,13 @@
           ['setor_id', 'bigint', 'fk:setores null'],
           ['role_id', 'bigint', 'fk:roles null'],
         ], { checks: ['(setor_id IS NULL) <> (role_id IS NULL)'] }),
-        tbl('autorizacoes', 'pedidos', 'Cada decisão de um aprovador em uma etapa de um pedido.', [
+        tbl('autorizacoes', 'pedidos', 'Cada decisão de um aprovador em uma etapa de um pedido, com o setor dele no momento.', [
           ['id', 'bigint', 'pk'],
           ['pedido_id', 'bigint', 'fk:pedidos'],
           ['etapa_id', 'bigint', 'fk:fluxo_etapas'],
           ['aprovador_id', 'bigint', 'fk:users', 'a action recusa se for o solicitante'],
-          ['decisao', 'varchar', '', 'aprovado · reprovado'],
+          ['setor_id', 'bigint', 'fk:setores', 'setor do aprovador na hora da decisão'],
+          ['decisao', 'varchar', '', 'aprovado_total · aprovado_parcial · reprovado'],
           ['motivo', 'text', 'null'],
           ['decidido_em', 'timestamptz'],
         ], { unicos: ['(pedido_id, etapa_id, aprovador_id)'] }),
@@ -599,7 +600,7 @@
     <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
       <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Pontos em aberto que mexem no modelo</h2>
       <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
-        <li><strong>Regra das duas autorizações.</strong> O modelo já aceita qualquer uma: etapas em ordem, com regra “qualquer” ou “todos” e escopo por tipo de item (<code>fluxo_etapas</code>). A escolha da SEMTRAS vira só configuração.</li>
+        <li><strong>Dois setores, um veredito.</strong> A SEMTRAS definiu uma etapa só, com a NSUAS 1 e a NSUAS 2 como aprovadoras e regra “qualquer”: <code>fluxo_etapas</code> com uma linha e <code>fluxo_etapa_aprovadores</code> com duas. Cada decisão grava o usuário, o setor dele (<code>setor_id</code>, guardado porque o servidor pode mudar de setor depois), a data e a hora. Falta decidir como tratar dois servidores decidindo o mesmo pedido ao mesmo tempo: a chave única atual não impede, então a action precisa travar o pedido.</li>
         <li><strong>Quem recebe tem sempre login?</strong> Por enquanto <code>entregas</code> aceita <code>recebedor_id</code> ou <code>recebedor_nome</code>. Se for sempre servidor com login, o nome em texto sai.</li>
         <li><strong>Forma de assinatura do termo.</strong> <code>termos.forma_assinatura</code> e <code>arquivo_path</code> cobrem o impresso com upload do escaneado. A assinatura eletrônica pode pedir outras colunas (data, IP, certificado).</li>
       </ol>

@@ -18,7 +18,9 @@
   <script>
     function maquina() {
       const OU = new Intl.ListFormat('pt-BR', { type: 'disjunction' });
-      const ETAPAS = ['Setor A', 'Setor B'];
+      // A SEMTRAS usa uma etapa só (basta um servidor da NSUAS 1 ou da NSUAS 2). O seletor da página
+      // permite ver um município que exige duas etapas em sequência.
+      const ETAPAS_POR = { 1: ['NSUAS 1 ou NSUAS 2'], 2: ['NSUAS 1', 'NSUAS 2'] };
 
       // Classes completas (e não montadas por interpolação) para o Tailwind enxergar cada uma.
       // Mesmos nomes e cores de status da página 01-fluxo-do-sistema.html.
@@ -39,9 +41,9 @@
         { n: 2, id: 'enviar', de: ['rascunho'], para: 'enviado', label: 'Enviar para aprovação', quem: 'Solicitante (ou alguém do setor)', perm: 'pedidos.criar', modulo: 'Pedidos e Autorização',
           efeito: 'Trava a edição do pedido e abre a etapa 1 da autorização.' },
         { n: 3, id: 'aprovar_etapa', de: ['enviado'], para: 'enviado', label: 'Aprovar uma etapa (faltam outras)', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
-          efeito: 'Registra quem aprovou, quando e a quantidade aprovada por item. O status não muda: abre a etapa seguinte.' },
-        { n: 4, id: 'aprovar_final', de: ['enviado'], para: 'aprovado', label: 'Aprovar a última etapa', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
-          efeito: 'O pedido fica liberado para a separação e a entrega.' },
+          efeito: 'Só existe em município com mais de uma etapa. Registra quem aprovou, o setor, quando e a quantidade aprovada por item. O status não muda: abre a etapa seguinte.' },
+        { n: 4, id: 'aprovar_final', de: ['enviado'], para: 'aprovado', label: 'Aprovar (última ou única etapa)', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
+          efeito: 'Registra quem aprovou (usuário e setor), quando e a quantidade aprovada por item. O pedido fica liberado para a separação e a entrega.' },
         { n: 5, id: 'reprovar', de: ['enviado'], para: 'reprovado', label: 'Reprovar', quem: 'Gestor_autorizador da etapa', perm: 'pedidos.autorizar', modulo: 'Pedidos e Autorização',
           efeito: 'Qualquer etapa pode reprovar, e o pedido termina aqui. Fica registrado quem reprovou e quando.' },
         { n: 6, id: 'cancelar', de: ['rascunho', 'enviado', 'aprovado'], para: 'cancelado', label: 'Cancelar', quem: 'Solicitante, só o próprio pedido', perm: 'pedidos.cancelar', modulo: 'Pedidos e Autorização',
@@ -98,7 +100,8 @@
       ];
 
       return {
-        ESTADOS, TR, INTERNAS, PERFIS, DA, QUEM, ETAPAS,
+        ESTADOS, TR, INTERNAS, PERFIS, DA, QUEM, nEtapas: 1,
+        get ETAPAS() { return ETAPAS_POR[this.nEtapas]; },
         ativos: ['Solicitante'], autor: 'eu', etapaDesigna: 'sim', distribuicao: true,
         pedido: { status: 'inicio', etapa: 0, itens: novosItens() },
         entrega: { papel: 0, cadeira: 0 },
@@ -130,14 +133,14 @@
           add('Situação', t.de.includes(s), t.id === 'criar' ? 'Ainda não existe pedido' : 'O pedido está em ' + OU.format(t.de.map(d => ESTADOS[d].nome)));
           if (t.id.startsWith('entregar')) add('Módulo', this.distribuicao, 'O módulo Distribuição e Termos está ativo no município');
           add('Permissão', this.tem(t.perm), 'Tem a permissão ' + t.perm);
-          const ultima = p.etapa + 1 === ETAPAS.length;
+          const ETAPAS = this.ETAPAS, ultima = p.etapa + 1 === ETAPAS.length;
           switch (t.id) {
             case 'enviar': add('Policy', this.autor !== 'outro', 'O pedido é seu ou do seu setor'); break;
             case 'aprovar_etapa':
             case 'aprovar_final':
               add('Policy', this.autor !== 'eu', 'Você não é o solicitante do pedido (segregação de funções)');
               add('Policy', this.etapaDesigna === 'sim', `A etapa ${p.etapa + 1} (${ETAPAS[Math.min(p.etapa, ETAPAS.length - 1)]}) designa o seu setor ou perfil como aprovador`);
-              add('Regra', t.id === 'aprovar_final' ? ultima : !ultima, t.id === 'aprovar_final' ? 'É a última etapa que falta' : 'Ainda faltam etapas depois desta');
+              add('Regra', t.id === 'aprovar_final' ? ultima : !ultima, t.id === 'aprovar_final' ? 'É a última (ou única) etapa que falta' : (ETAPAS.length === 1 ? 'O município tem uma etapa só, então não há etapa seguinte' : 'Ainda faltam etapas depois desta'));
               break;
             case 'reprovar':
               add('Policy', this.autor !== 'eu', 'Você não é o solicitante do pedido (segregação de funções)');
@@ -222,7 +225,7 @@
             <text x="30" y="166" text-anchor="middle" font-size="10" class="fill-slate-400">novo pedido</text>`;
           const nos = Object.entries(ESTADOS).filter(([k]) => k !== 'inicio').map(([k, s]) => {
             const aqui = k === atual, H = 56;
-            const sub = aqui ? (k === 'enviado' ? `aguardando etapa ${this.pedido.etapa + 1} de ${ETAPAS.length}` : 'estado atual') : s.final ? 'estado final' : '';
+            const sub = aqui ? (k === 'enviado' ? (this.ETAPAS.length === 1 ? 'aguardando veredito' : `aguardando etapa ${this.pedido.etapa + 1} de ${this.ETAPAS.length}`) : 'estado atual') : s.final ? 'estado final' : '';
             const anel = aqui ? `<rect x="${s.x - 5}" y="${s.y - 5}" width="${s.w + 10}" height="${H + 10}" rx="16" fill="none" class="stroke-slate-900" stroke-width="2"/>` : '';
             return `${anel}<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${H}" rx="12" class="${s.svg}" stroke-width="2"/>
               <text x="${s.x + s.w / 2}" y="${s.y + (sub ? 25 : 33)}" text-anchor="middle" font-size="12.5" font-weight="600" class="fill-slate-900">${s.nome}</text>
@@ -317,6 +320,12 @@
               </select>
             </label>
           </div>
+          <label class="mt-3 block text-xs font-medium text-slate-500">Etapas de autorização do município
+            <select x-model.number="nEtapas" @change="recomecar()" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800">
+              <option value="1" :selected="nEtapas === 1">Uma etapa: basta um veredito da NSUAS 1 ou da NSUAS 2 (SEMTRAS)</option>
+              <option value="2" :selected="nEtapas === 2">Duas etapas em sequência (outro município, só para comparar)</option>
+            </select>
+          </label>
           <label class="mt-3 flex items-start gap-2 text-sm">
             <input type="checkbox" x-model="distribuicao" class="mt-0.5 h-4 w-4 accent-emerald-600">
             <span>Módulo <strong>Distribuição e Termos</strong> ativo no município <span class="block text-xs text-slate-500">Desligado, o pedido aprovado fica parado em Aprovado: não há quem entregue. Veja <code>06-mapa-de-modulos.html</code>.</span></span>
@@ -369,7 +378,7 @@
                 </li>
               </template>
             </ul>
-            <p class="mt-2 text-xs text-slate-500">A SEMTRAS configura duas etapas; a regra de como elas se combinam ainda está em aberto. A quantidade aprovada nesta demonstração é sempre igual à solicitada.</p>
+            <p class="mt-2 text-xs text-slate-500">A SEMTRAS usa uma etapa só: o pedido cai numa caixa de entrada vista pela NSUAS 1 e pela NSUAS 2, e o veredito de um servidor de qualquer uma já decide. A quantidade aprovada nesta demonstração é sempre igual à solicitada.</p>
 
             <div x-show="podeEntregar &amp;&amp; distribuicao" class="mt-3 flex flex-wrap items-center gap-3">
               <button type="button" @click="reabastecer()" class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Dar entrada de 10 resmas no estoque</button>
@@ -424,7 +433,7 @@
                   </li>
                 </template>
               </ul>
-              <p x-show="!l.ok" class="mt-3 text-sm text-rose-800">O sistema recusa com 403 e registra a tentativa. Primeiro motivo: <span x-text="l.motivo.toLowerCase()"></span>.</p>
+              <p x-show="!l.ok" class="mt-3 text-sm text-rose-800">O sistema recusa com 403 e registra a tentativa. Primeiro motivo: <span x-text="(l.motivo || '').toLowerCase()"></span>.</p>
               <p x-show="l.ok" class="mt-3 text-xs text-slate-600" x-text="l.t.efeito"></p>
             </div>
           </template>
@@ -512,10 +521,10 @@
         <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
           <li><strong>Um só lugar decide:</strong> o mapa de transições permitidas fica no enum do status. Nenhuma tela nem classe de ação muda o status por conta própria.</li>
           <li><strong>Parcialmente atendido e Atendido são consequência:</strong> o sistema compara a quantidade distribuída com a aprovada depois de cada entrega. Ninguém escolhe esses status à mão.</li>
-          <li><strong>Enviado cobre todas as etapas:</strong> o número de etapas é configuração do município. Aprovar uma etapa que não é a última não muda o status, só abre a seguinte.</li>
+          <li><strong>Enviado cobre a análise inteira:</strong> o número de etapas é configuração do município. Na SEMTRAS é uma só, e o veredito de um servidor da NSUAS 1 ou da NSUAS 2 decide. Num município com várias etapas, aprovar uma que não é a última não muda o status, só abre a seguinte.</li>
           <li><strong>Depois do envio o pedido não é editado.</strong> Quem aprova define a quantidade aprovada por item, e a solicitada fica guardada.</li>
           <li><strong>Segregação de funções:</strong> quem pediu nunca aprova nem reprova o próprio pedido, qualquer que seja o perfil.</li>
-          <li><strong>Cada transição vai para a auditoria,</strong> com autor, data, hora e status antes e depois.</li>
+          <li><strong>Cada transição vai para a auditoria,</strong> com usuário, setor, data, hora e status antes e depois.</li>
           <li><strong>Entregar depende de módulos:</strong> sem Distribuição e Termos o pedido para em Aprovado. A baixa do saldo só acontece se Estoque estiver ativo, e a mudança de localização só se Patrimônio estiver.</li>
         </ul>
       </section>
@@ -563,7 +572,7 @@ public function transicionar(StatusPedido $para): void
         <li><strong>A separação não tem status.</strong> O PDF lista sete, e a análise acrescenta a etapa de separação por Compras. Aqui ela é uma ação dentro de Aprovado. Se for preciso enxergar “em separação”, vira um oitavo status.</li>
         <li><strong>Cancelar um pedido já separado.</strong> A página permite cancelar em Aprovado. Falta decidir o que acontece com os itens separados e se o cancelamento depois da separação precisa de outro perfil.</li>
         <li><strong>Quem pode cancelar, e até quando:</strong> a página de perfis assume o próprio solicitante, enquanto não houve entrega. Gestor e Distribuição não cancelam.</li>
-        <li><strong>Regra das duas autorizações</strong> (em sequência, qualquer uma basta, ou por tipo de item) e quais são os dois setores: o mapa de estados é o mesmo nos três casos, muda só o que conta como “última etapa”.</li>
+        <li><strong>Veredito simultâneo e revisão.</strong> A SEMTRAS definiu uma etapa só, em que basta um servidor da NSUAS 1 ou da NSUAS 2. Falta decidir o que acontece se dois servidores abrirem o mesmo pedido ao mesmo tempo (vale o primeiro a salvar?) e se uma decisão registrada pode ser revista, o que seria uma transição nova.</li>
       </ol>
     </section>
 

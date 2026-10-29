@@ -30,6 +30,6 @@ Ordem sugerida: 3, 9, 10. A 9 é a maior e fica por último.
 ## Convenções para manter
 
 - Um arquivo `.html` por página, em `docs/`, sem build. Tailwind `cdn.tailwindcss.com/3.4.17` e Alpine `alpinejs@3.14.9` por jsDelivr.
-- Dados fictícios (nomes, números, datas) e aviso disso no rodapé. Os dois setores autorizadores aparecem como "Setor A" e "Setor B" enquanto não estiverem definidos.
+- Dados fictícios (nomes, números, datas) e aviso disso no rodapé. Os dois setores autorizadores são "NSUAS 1" e "NSUAS 2": uma etapa só, e basta um servidor de qualquer um decidir.
 - Pontos em aberto com a SEMTRAS aparecem num cartão tracejado em âmbar: regra das duas autorizações e forma de assinatura do termo.
 - Selects com opções geradas por `x-for` precisam de `:selected` em cada `<option>`, senão o Alpine mostra a primeira opção em vez do valor do estado.

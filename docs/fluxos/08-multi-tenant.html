@@ -49,14 +49,14 @@
       const CFG = {
         1: {
           modulos: ['estoque', 'patrimonio', 'contratos', 'pedidos', 'distribuicao', 'relatorios'],
-          etapas: ['Setor A', 'Setor B'],
+          etapas: ['NSUAS 1 ou NSUAS 2'],
           numeracao: 'AAAA/NNNNNN, reinicia a cada ano · próximo: 2026/000089',
           cabecalho: 'Prefeitura Municipal de Santarém · SEMTRAS',
           contrato: 'Sim: a entrada vem do recebimento conferido com nota fiscal',
         },
         2: {
           modulos: ['estoque', 'pedidos', 'distribuicao', 'relatorios'],
-          etapas: ['Coordenação'],
+          etapas: ['Coordenação', 'Secretaria'],
           numeracao: 'NNNN/AAAA, reinicia a cada ano · próximo: 0003/2026',
           cabecalho: 'Prefeitura Municipal de Vila Nova · Assistência Social',
           contrato: 'Não: sem o módulo Contratos, só entrada manual com justificativa',
@@ -523,7 +523,7 @@ CREATE POLICY isolamento_tenant ON pedidos
         <li><strong>Operador da plataforma.</strong> Os documentos não preveem alguém que veja todos os municípios. Aqui ninguém cruza municípios pela interface, e a manutenção entra por comando com o tenant definido. Se existir um super-administrador, ele precisa de um papel fora do tenant e de uma policy própria.</li>
         <li><strong>Uma pessoa em dois municípios</strong> tem duas contas, com o mesmo e-mail. O e-mail é único por município, não no sistema.</li>
         <li><strong>Subdomínio como identificação.</strong> Domínio próprio de cada município não está previsto.</li>
-        <li><strong>Regra das duas autorizações</strong> de Santarém (em sequência, qualquer uma basta, ou por tipo de item) e quais são os dois setores, ainda em aberto, e a forma de assinatura do termo. A configuração de Vila Nova, com uma etapa, é só um exemplo.</li>
+        <li><strong>Forma de assinatura do termo.</strong> A regra de autorização de Santarém está definida (uma etapa, basta um veredito da NSUAS 1 ou da NSUAS 2). A configuração de Vila Nova, com duas etapas em sequência, é só um exemplo.</li>
       </ol>
     </section>
 

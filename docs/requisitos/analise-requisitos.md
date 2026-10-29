@@ -97,7 +97,7 @@ O PDF é um modelo genérico, com sugestões de implementação em planilha, e n
 - **Desativar esconde, não apaga:** os dados são preservados e a auditoria continua valendo.
 - **Dependências declaradas no código:** o sistema impede ativar um módulo sem os que ele exige (ex.: Distribuição sem Pedidos).
 - **Regras de negócio como configuração, não como módulo:** ex.: "entrada de estoque exige contrato" (SEMTRAS liga; outro município pode permitir entrada manual com justificativa).
-- **Fluxo de autorização configurável por tenant:** etapas em ordem, com quem aprova cada uma (perfil ou setor), regra da etapa (qualquer um ou todos) e, se necessário, escopo por tipo de item (consumo ou permanente). A SEMTRAS configura duas etapas.
+- **Fluxo de autorização configurável por tenant:** etapas em ordem, com quem aprova cada uma (perfil ou setor), regra da etapa (qualquer um ou todos) e, se necessário, escopo por tipo de item (consumo ou permanente). A SEMTRAS configura uma etapa só, com a NSUAS 1 e a NSUAS 2 como aprovadoras (basta um veredito).
 
 ### Riscos
 
@@ -143,7 +143,7 @@ O PDF é um modelo genérico, com sugestões de implementação em planilha, e n
 
 ### Em aberto
 
-1. **Autorizações da SEMTRAS:** a regra (em sequência, qualquer uma basta ou por tipo de item) e quais são os dois setores ainda não estão definidas. Como o fluxo é configurável por tenant, o desenvolvimento segue e a regra da SEMTRAS é configurada depois de conversar com eles.
+1. **Autorizações da SEMTRAS (definido):** uma etapa só, com a NSUAS 1 e a NSUAS 2 como setores avaliadores. O pedido cai numa caixa de entrada vista pelos dois, e basta um servidor de qualquer um decidir (aprovar totalmente, aprovar parcialmente ou reprovar). A decisão grava o usuário, o setor dele, a data e a hora. O fluxo continua configurável por tenant. Em aberto: dois servidores decidindo o mesmo pedido ao mesmo tempo e se uma decisão pode ser revista.
 2. **Termo de recebimento:** impresso com upload do escaneado, assinatura eletrônica ou ambos. Sem definição, o MVP começa com o PDF impresso. Falta também confirmar se quem recebe é sempre um servidor com login.
 
 ## 9. Próximos passos

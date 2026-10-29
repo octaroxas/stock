@@ -35,7 +35,7 @@
           perms: ['pedidos.criar', 'pedidos.ver_setor', 'pedidos.cancelar'],
           limite: 'Não aprova nem reprova o próprio pedido e não pede mais do que o disponível. Quem assina o termo é alguém do setor destino.' },
         { k: 'nsuas', nome: ['NSUAS 1', 'e NSUAS 2'], sub: 'caixa de entrada', bar: 'fill-violet-500', chip: 'bg-violet-100 text-violet-800', borda: 'border-t-violet-500',
-          quem: 'Os dois setores avaliadores veem o mesmo pedido numa caixa de entrada, e basta um servidor de qualquer um deles decidir. Nas outras páginas aparecem como Setor A e Setor B.',
+          quem: 'Os dois setores avaliadores veem o mesmo pedido numa caixa de entrada, e basta um servidor de qualquer um deles decidir.',
           passos: '4, e 5 quando reprova', perfil: 'Gestor_autorizador',
           perms: ['pedidos.autorizar', 'pedidos.ver_todos'],
           limite: 'Aprova totalmente, aprova em parte ou reprova. A decisão grava o usuário, o setor dele, a data e a hora. Não decide sobre o próprio pedido.' },
@@ -642,7 +642,7 @@
     <section class="mt-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-5">
       <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900"><svg class="h-4 w-4 fill-none stroke-amber-700 stroke-2"><use href="#i-alert"/></svg>Pontos assumidos nesta página, a confirmar com a SEMTRAS</h2>
       <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-amber-900/90">
-        <li><strong>Decisão aberta a qualquer servidor das duas NSUAS.</strong> Aqui o primeiro veredito vale para o pedido inteiro e o pedido sai da caixa dos dois setores. Falta decidir o que acontece se dois servidores abrirem o pedido ao mesmo tempo (vence quem salvar primeiro?), se uma decisão pode ser revista e se a NSUAS pode aprovar só parte dos itens e deixar o resto para o outro setor. As páginas <code>00</code>, <code>01</code> e <code>07</code> ainda tratam as duas NSUAS como duas etapas em sequência e precisam ser ajustadas.</li>
+        <li><strong>Decisão aberta a qualquer servidor das duas NSUAS.</strong> Aqui o primeiro veredito vale para o pedido inteiro e o pedido sai da caixa dos dois setores. Falta decidir o que acontece se dois servidores abrirem o pedido ao mesmo tempo (vence quem salvar primeiro?), se uma decisão pode ser revista e se a NSUAS pode aprovar só parte dos itens e deixar o resto para o outro setor.</li>
         <li><strong>Quando o item é reservado.</strong> Aqui, só no veredito de aprovação. Entre o envio e a aprovação o disponível não cai, então dois pedidos podem pedir o mesmo item. Por isso o sistema reconfere o limite na aprovação. A alternativa é reservar já no envio.</li>
         <li><strong>Quando o saldo baixa e o pedido vira Atendido.</strong> Aqui, na assinatura do termo, como a descrição do fluxo indica. A página da máquina de estados (<code>07</code>) baixa e marca Atendido na entrega. É preciso escolher um dos dois, e entre a entrega e a assinatura o pedido fica Aprovado.</li>
         <li><strong>Termo que não é assinado.</strong> Sem prazo, os itens ficam reservados indefinidamente. Falta definir um prazo, quem cobra e se a reserva pode ser desfeita.</li>
@@ -652,7 +652,7 @@
       </ol>
     </section>
 
-    <p class="mt-8 text-xs text-slate-400">Fluxo descrito pela equipe do projeto, a partir da apresentação da SEMTRAS · pedido, setores, pessoas, quantidades e horários fictícios · NSUAS 1 e NSUAS 2 aparecem como Setor A e Setor B nas outras páginas · fonte: <code>docs/requisitos/analise-requisitos.md</code>. Máquina de estados em <code>07-maquina-de-estados-do-pedido.html</code>, fluxo completo em <code>01-fluxo-do-sistema.html</code>, termos em <code>03-termos.html</code> e permissões em <code>05-perfis-e-permissoes.html</code>.</p>
+    <p class="mt-8 text-xs text-slate-400">Fluxo descrito pela equipe do projeto, a partir da apresentação da SEMTRAS · pedido, setores, pessoas, quantidades e horários fictícios · fonte: <code>docs/requisitos/analise-requisitos.md</code>. Máquina de estados em <code>07-maquina-de-estados-do-pedido.html</code>, fluxo completo em <code>01-fluxo-do-sistema.html</code>, termos em <code>03-termos.html</code> e permissões em <code>05-perfis-e-permissoes.html</code>.</p>
   </div>
 </body>
 </html>
